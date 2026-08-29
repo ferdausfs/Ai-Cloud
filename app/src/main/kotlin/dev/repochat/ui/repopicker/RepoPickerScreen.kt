@@ -26,7 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.GitHub
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -143,7 +143,7 @@ fun RepoPickerScreen(
 
                 filtered.isEmpty() && state.repos.isEmpty() -> Box(Modifier.fillMaxSize()) {
                     EmptyState(
-                        icon = Icons.Rounded.GitHub,
+                        icon = Icons.Rounded.FolderOpen,
                         title = stringResource(R.string.repos_empty_title),
                         body = stringResource(R.string.repos_empty_body),
                         modifier = Modifier.align(Alignment.Center),
