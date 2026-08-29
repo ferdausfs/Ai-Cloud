@@ -6,7 +6,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.rememberSharedContentState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -131,12 +131,15 @@ fun RepoPickerScreen(
                         it.description?.contains(query, ignoreCase = true) == true
                 }
             }
+            // Local val so the branch below can smart-cast (state is a
+            // delegated property, which Kotlin cannot smart-cast).
+            val loadError = state.error
 
             when {
                 state.loading -> RepoLoadingList()
 
-                state.error != null -> ErrorState(
-                    error = state.error,
+                loadError != null -> ErrorState(
+                    error = loadError,
                     onRetry = viewModel::refresh,
                     onOpenSettings = onOpenSettings,
                 )

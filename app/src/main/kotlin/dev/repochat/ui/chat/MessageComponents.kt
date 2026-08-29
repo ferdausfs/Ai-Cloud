@@ -48,6 +48,7 @@ import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PendingChange
 import dev.repochat.ui.components.InfoChip
 import dev.repochat.ui.theme.CodeTextStyle
+import kotlinx.coroutines.launch
 
 /**
  * Subtle entrance animation: each message slides up and fades in on first
@@ -59,10 +60,10 @@ fun Modifier.bubbleIn(key: Any): Modifier {
     val alpha = remember(key) { Animatable(0f) }
     LaunchedEffect(key) {
         kotlinx.coroutines.coroutineScope {
-            kotlinx.coroutines.launch {
+            launch {
                 offsetY.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
             }
-            kotlinx.coroutines.launch {
+            launch {
                 alpha.animateTo(1f, tween(220))
             }
         }
