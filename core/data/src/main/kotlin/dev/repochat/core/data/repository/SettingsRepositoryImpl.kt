@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 @Singleton
 class SettingsRepositoryImpl @Inject constructor(
-    store: EncryptedSettingsStore,
+    private val store: EncryptedSettingsStore,
 ) : SettingsRepository {
 
     private val cache = MutableStateFlow(store.read())
