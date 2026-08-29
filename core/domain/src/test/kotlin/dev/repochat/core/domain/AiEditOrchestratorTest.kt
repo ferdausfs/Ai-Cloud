@@ -57,7 +57,10 @@ class AiEditOrchestratorTest {
         }
         val chat = FakeChatRepository()
         val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
-        val approval = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+        // replay=1 so the approval emitted while handling ProposeWrite is
+        // retained until the orchestrator suspends on approval.first()
+        // (with replay=0 the emission would be dropped: no subscriber yet).
+        val approval = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
 
         val collected = mutableListOf<TurnEvent>()
         val job = launch {
@@ -85,7 +88,7 @@ class AiEditOrchestratorTest {
         val github = FakeGithubService()
         val chat = FakeChatRepository()
         val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
-        val approval = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+        val approval = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
 
         val collected = mutableListOf<TurnEvent>()
         val job = launch {

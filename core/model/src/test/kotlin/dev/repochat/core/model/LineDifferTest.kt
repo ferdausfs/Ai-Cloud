@@ -62,7 +62,7 @@ class LineDifferTest {
     @Test
     fun `fallback diff for oversized inputs stays correct`() {
         val big = (1..3000).joinToString("\n") { "line$it" }
-        val diff = LineDiffer.diff(big, big.replace("line42", "line42-edited"))
+        val diff = LineDiffer.diff(big, big.replaceFirst("line42", "line42-edited"))
         assertEquals(1, diff.additions)
         assertEquals(1, diff.removals)
     }
