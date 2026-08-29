@@ -1,0 +1,57 @@
+name: Android CI
+
+on:
+  push:
+    branches: ["arena/01a04c9a-ai-cloud"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Run unit tests
+        run: ./gradlew :core:model:test :core:domain:test :core:data:testDebugUnitTest :app:testDebugUnitTest --stacktrace
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  # Auto-merge: once the working branch is GREEN (build + tests pass),
+  # merge it into main automatically — no manual push is needed. Pushing
+  # to main does NOT re-trigger this workflow (the push filter above only
+  # includes the working branch), so there is no loop.
+  merge-to-main:
+    name: Auto-merge into main when green
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a04c9a-ai-cloud'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Merge working branch into main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${{ github.ref_name }}"
+          git merge --no-ff "origin/${{ github.ref_name }}" -m "Auto-merge ${{ github.ref_name }} after green CI"
+          git push origin main
