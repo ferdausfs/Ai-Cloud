@@ -80,10 +80,32 @@ nothing is hardcoded in build scripts.
 6. **Create pull request** raises a PR from the working branch into the
    default branch — merging is always a separate manual step.
 
+## GitHub Actions CI & auto-merge
+
+`.github/workflows/android.yml` does two things:
+
+1. **Build** — on every push it runs `:app:assembleDebug` plus the full unit
+   test suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
+   `:app:testDebugUnitTest`) and uploads the debug APK as an artifact.
+2. **Auto-merge into `main`** — once the working branch
+   (`arena/01a04c9a-ai-cloud`) is **green**, a second job automatically merges
+   it into `main` with a merge commit (`--no-ff`) and pushes. No manual push is
+   needed, and `main` can never receive a red commit because the merge job
+   only runs after the build job succeeds. Pushing to `main` does not
+   re-trigger the workflow (the push filter only includes the working branch).
+
+Note: the app itself still never writes to `main` — AI commits always land on
+`ai-chat/<session-id>` working branches. The CI auto-merge only moves the
+*application code* from the green working branch into `main`. If you ever
+enable branch protection on `main`, the auto-merge job will fail loudly; in
+that case comment out the job and merge via pull request instead.
+
 ## Project layout
 
 ```
-.github/workflows/android.yml   CI: assembleDebug + unit tests + APK artifact
+.github/workflows/android.yml   CI: assembleDebug + unit tests + APK artifact,
+                                then auto-merges the green working branch
+                                into main
 gradle/libs.versions.toml       Version catalog
 gradle/wrapper/                 Gradle wrapper (jar included)
 settings.gradle.kts             Module graph
