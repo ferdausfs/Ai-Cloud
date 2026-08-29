@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- EncryptedSharedPreferences must never be restored from a cloud backup:
+     the Keystore master key would not match after a restore. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="secure_settings.xml" />
+    <exclude domain="database" path="repochat.db" />
+    <exclude domain="database" path="repochat.db-wal" />
+    <exclude domain="database" path="repochat.db-shm" />
+</full-backup-content>
