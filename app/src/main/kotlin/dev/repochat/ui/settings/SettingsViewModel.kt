@@ -11,7 +11,6 @@ import dev.repochat.core.domain.TestOllamaUseCase
 import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.AppSettings
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

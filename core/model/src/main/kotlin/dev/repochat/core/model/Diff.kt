@@ -69,16 +69,37 @@ object LineDiffer {
     }
 
     private fun fallbackDiff(old: List<String>, new: List<String>): DiffResult {
+        // Trim the common prefix and suffix so a huge-file fallback still
+        // produces a readable, focused diff instead of a whole-file replace.
+        var prefix = 0
+        while (prefix < old.size && prefix < new.size && old[prefix] == new[prefix]) prefix++
+
+        var suffix = 0
+        while (suffix < old.size - prefix && suffix < new.size - prefix &&
+            old[old.size - 1 - suffix] == new[new.size - 1 - suffix]
+        ) suffix++
+
         val lines = mutableListOf<DiffLine>()
         var removals = 0
         var additions = 0
-        old.forEachIndexed { i, text ->
-            lines += DiffLine(DiffLineType.REMOVE, i + 1, null, text)
+
+        for (i in 0 until prefix) {
+            lines += DiffLine(DiffLineType.CONTEXT, i + 1, i + 1, old[i])
+        }
+        val oldMiddle = old.size - prefix - suffix
+        val newMiddle = new.size - prefix - suffix
+        for (i in 0 until oldMiddle) {
+            lines += DiffLine(DiffLineType.REMOVE, prefix + i + 1, null, old[prefix + i])
             removals++
         }
-        new.forEachIndexed { i, text ->
-            lines += DiffLine(DiffLineType.ADD, null, i + 1, text)
+        for (i in 0 until newMiddle) {
+            lines += DiffLine(DiffLineType.ADD, null, prefix + i + 1, new[prefix + i])
             additions++
+        }
+        for (i in 0 until suffix) {
+            val o = old.size - suffix + i
+            val n = new.size - suffix + i
+            lines += DiffLine(DiffLineType.CONTEXT, o + 1, n + 1, old[o])
         }
         return DiffResult(lines, additions, removals)
     }

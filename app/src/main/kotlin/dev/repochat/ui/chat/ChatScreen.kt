@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.rememberSharedContentState
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -100,6 +101,7 @@ import kotlinx.coroutines.launch
     ExperimentalMaterial3Api::class,
     ExperimentalSharedTransitionApi::class,
     ExperimentalLayoutApi::class,
+    ExperimentalFoundationApi::class,
 )
 @Composable
 fun ChatScreen(
@@ -126,19 +128,24 @@ fun ChatScreen(
         viewModel.start(owner, repo, defaultBranch)
     }
 
-    LaunchedEffect(state.snackbar.id) {
-        val event = state.snackbar
-        if (event.id != 0L) {
-            snackbarHostState.showSnackbar(
-                stringResource(event.textRes, *event.args.toTypedArray())
-            )
+    // Resolved during composition so the effects/lambdas below never call
+    // @Composable stringResource() from a non-composable context.
+    val snackbarText = state.snackbar
+        .takeIf { it.id != 0L }
+        ?.let { stringResource(it.textRes, *it.args.toTypedArray()) }
+    val treeTruncatedText = stringResource(R.string.chat_tree_truncated)
+    val copiedMessage = stringResource(R.string.chat_copied)
+
+    LaunchedEffect(state.snackbar.id, snackbarText) {
+        if (snackbarText != null) {
+            snackbarHostState.showSnackbar(snackbarText)
             viewModel.onSnackbarShown()
         }
     }
 
     LaunchedEffect(state.treeTruncated) {
         if (state.treeTruncated) {
-            snackbarHostState.showSnackbar(stringResource(R.string.chat_tree_truncated))
+            snackbarHostState.showSnackbar(treeTruncatedText)
             viewModel.consumeTreeTruncated()
         }
     }
@@ -387,7 +394,7 @@ fun ChatScreen(
             },
             onCopy = {
                 clipboardManager.setText(AnnotatedString(pr.info.htmlUrl))
-                scope.launch { snackbarHostState.showSnackbar(stringResource(R.string.chat_copied)) }
+                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
             },
             onDismiss = viewModel::dismissPrDialog,
         )
@@ -407,6 +414,10 @@ fun ChatScreen(
 
 @Composable
 private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modifier) {
+    val fixLabel = stringResource(R.string.chat_suggest_fix)
+    val explainLabel = stringResource(R.string.chat_suggest_explain)
+    val testLabel = stringResource(R.string.chat_suggest_test)
+    val readmeLabel = stringResource(R.string.chat_suggest_readme)
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -427,23 +438,23 @@ private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modif
         ) {
             SuggestionChip(
                 icon = Icons.Rounded.Bolt,
-                label = stringResource(R.string.chat_suggest_fix),
-                onClick = { onSuggestion(stringResource(R.string.chat_suggest_fix)) },
+                label = fixLabel,
+                onClick = { onSuggestion(fixLabel) },
             )
             SuggestionChip(
                 icon = Icons.Rounded.SmartToy,
-                label = stringResource(R.string.chat_suggest_explain),
-                onClick = { onSuggestion(stringResource(R.string.chat_suggest_explain)) },
+                label = explainLabel,
+                onClick = { onSuggestion(explainLabel) },
             )
             SuggestionChip(
                 icon = Icons.Rounded.Check,
-                label = stringResource(R.string.chat_suggest_test),
-                onClick = { onSuggestion(stringResource(R.string.chat_suggest_test)) },
+                label = testLabel,
+                onClick = { onSuggestion(testLabel) },
             )
             SuggestionChip(
                 icon = Icons.Rounded.Settings,
-                label = stringResource(R.string.chat_suggest_readme),
-                onClick = { onSuggestion(stringResource(R.string.chat_suggest_readme)) },
+                label = readmeLabel,
+                onClick = { onSuggestion(readmeLabel) },
             )
         }
     }

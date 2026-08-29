@@ -103,7 +103,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun send(text: String) {
+    fun send(text: String) = sendInternal(text, resend = false)
+
+    fun retry() {
+        // Re-runs the previous turn without appending a duplicate user bubble.
+        lastUserInput?.let { sendInternal(it, resend = true) }
+    }
+
+    private fun sendInternal(text: String, resend: Boolean) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         val session = _uiState.value.session ?: return
@@ -112,13 +119,11 @@ class ChatViewModel @Inject constructor(
 
         lastUserInput = trimmed
         viewModelScope.launch {
-            chatRepository.appendUserText(repoKey, session.sessionId, trimmed)
+            if (!resend) {
+                chatRepository.appendUserText(repoKey, session.sessionId, trimmed)
+            }
             runTurn(trimmed, session)
         }
-    }
-
-    fun retry() {
-        lastUserInput?.let { send(it) }
     }
 
     fun approveChange() {

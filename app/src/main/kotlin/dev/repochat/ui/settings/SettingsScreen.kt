@@ -81,11 +81,12 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val savedMessage = stringResource(R.string.settings_saved)
 
     LaunchedEffect(state.savedFlash) {
         if (state.savedFlash) {
             snackbarHostState.currentSnackbarData?.dismiss()
-            snackbarHostState.showSnackbar(stringResource(R.string.settings_saved))
+            snackbarHostState.showSnackbar(savedMessage)
             viewModel.onSavedFlashShown()
         }
     }
