@@ -74,20 +74,42 @@ class AiEditOrchestrator @Inject constructor(
                 )
             }
 
+        val visionSupported = PromptBuilder.modelSupportsVision(model)
+        val attachment = request.attachment
+        val taskText = buildString {
+            when {
+                attachment == null -> Unit
+                !attachment.textContent.isNullOrEmpty() -> {
+                    append(PromptBuilder.attachedFileMessage(attachment.displayName, attachment.textContent))
+                    append("\n\n")
+                }
+                attachment.isImage -> {
+                    append(PromptBuilder.attachedImageMessage(attachment.displayName, visionSupported))
+                    append("\n\n")
+                }
+            }
+            append(request.userText)
+        }
+        val userImages = attachment
+            ?.imageBase64
+            ?.takeIf { visionSupported && it.isNotBlank() }
+            ?.let { listOf(it) }
+
         var messages = buildList {
             add(OllamaMessage(OllamaRole.SYSTEM, PromptBuilder.system()))
             addAll(history)
             add(
                 OllamaMessage(
-                    OllamaRole.USER,
-                    PromptBuilder.userTurn(
-                        task = request.userText,
+                    role = OllamaRole.USER,
+                    content = PromptBuilder.userTurn(
+                        task = taskText,
                         owner = request.owner,
                         repo = request.repo,
                         branch = branch,
                         treeText = FileTreeFormatter.format(tree.entries),
                         entryCount = tree.entries.size,
                     ),
+                    images = userImages,
                 )
             )
         }
@@ -170,7 +192,7 @@ class AiEditOrchestrator @Inject constructor(
         val appError = when (error) {
             is AppError -> error
             else -> AppError.Network(
-                "Something went wrong: ${error.message ?: "unexpected error"}"
+                "Something went wrong: ${error.message?.takeIf { it.isNotBlank() } ?: "unexpected error"}"
             )
         }
         emit(TurnEvent.Error(appError))

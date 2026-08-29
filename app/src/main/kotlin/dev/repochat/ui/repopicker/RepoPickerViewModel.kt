@@ -51,7 +51,10 @@ class RepoPickerViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         loading = false,
-                        error = AppError.Network(e.message ?: "Failed to load repositories"),
+                        error = AppError.Network(
+                            e.message?.takeIf { it.isNotBlank() }
+                                ?: "Failed to load repositories",
+                        ),
                     )
                 }
             }

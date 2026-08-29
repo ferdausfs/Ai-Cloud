@@ -25,7 +25,12 @@ data class OllamaChatRequestDto(
 )
 
 @Serializable
-data class OllamaMessageDto(val role: String, val content: String)
+data class OllamaMessageDto(
+    val role: String,
+    val content: String,
+    /** Base64 image payloads for vision models (Ollama /api/chat). */
+    val images: List<String>? = null,
+)
 
 @Serializable
 data class OllamaChatResponseDto(

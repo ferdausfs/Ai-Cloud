@@ -45,4 +45,32 @@ class PromptBuilderTest {
         // Newest user message must be retained.
         assertTrue(capped.last().content.startsWith("u2"))
     }
+
+    @Test
+    fun `attached file message matches file content style and truncates`() {
+        val short = PromptBuilder.attachedFileMessage("notes.txt", "hello")
+        assertTrue(short.startsWith("ATTACHED FILE - notes.txt:"))
+        assertTrue(short.contains("hello"))
+
+        val huge = "x".repeat(90_000)
+        val truncated = PromptBuilder.attachedFileMessage("big.kt", huge)
+        assertTrue(truncated.contains("truncated"))
+        assertTrue(truncated.length < huge.length)
+    }
+
+    @Test
+    fun `attached image message reflects vision support`() {
+        val withVision = PromptBuilder.attachedImageMessage("shot.png", visionSupported = true)
+        assertTrue(withVision.contains("vision"))
+        val without = PromptBuilder.attachedImageMessage("shot.png", visionSupported = false)
+        assertTrue(without.contains("does not support vision", ignoreCase = true))
+    }
+
+    @Test
+    fun `modelSupportsVision detects known vision families`() {
+        assertTrue(PromptBuilder.modelSupportsVision("llava:13b"))
+        assertTrue(PromptBuilder.modelSupportsVision("qwen2-vl:7b"))
+        assertTrue(!PromptBuilder.modelSupportsVision("gpt-oss:120b-cloud"))
+        assertTrue(!PromptBuilder.modelSupportsVision(""))
+    }
 }

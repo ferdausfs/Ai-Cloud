@@ -35,8 +35,11 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
     } catch (_: Exception) {
         null
     }
+    // HttpException.message() returns the HTTP reason phrase. HTTP/2 (used by
+    // GitHub and Ollama) has no reason phrase, so message() is "" — not null.
+    // Guard blank as well as null so the banner never shows empty text.
     val detail = apiMessage?.takeIf { it.isNotBlank() }
-        ?: e.message()
+        ?: e.message()?.takeIf { it.isNotBlank() }
         ?: "HTTP $code"
 
     return when (code) {

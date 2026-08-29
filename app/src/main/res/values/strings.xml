@@ -43,6 +43,10 @@
     <string name="chat_input_hint">Ask me to edit this repo…</string>
     <string name="chat_input_approval_hint">Approve or reject the proposed change…</string>
     <string name="chat_send">Send message</string>
+    <string name="chat_attach">Attach file</string>
+    <string name="chat_attach_remove">Remove attachment</string>
+    <string name="chat_attach_failed">Couldn\'t read that file. Try a different one.</string>
+    <string name="chat_attach_too_large">That file is too large to attach (max 5 MB).</string>
     <string name="chat_pr">Create pull request</string>
     <string name="chat_more">More options</string>
     <string name="chat_clear">Clear conversation</string>

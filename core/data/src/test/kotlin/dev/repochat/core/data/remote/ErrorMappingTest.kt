@@ -48,4 +48,25 @@ class ErrorMappingTest {
         assertEquals(500, (error as AppError.Api).code)
         assertEquals("internal server error", error.userMessage)
     }
+
+    @Test
+    fun `blank HTTP reason phrase falls back to HTTP code`() {
+        // HTTP/2 responses have an empty reason phrase; message() returns "" not null.
+        val error = toAppError(AppError.Provider.OLLAMA, httpException(502))
+        assertTrue(error is AppError.Api)
+        assertTrue(
+            "Expected non-blank fallback, got '${error.userMessage}'",
+            error.userMessage.isNotBlank(),
+        )
+        assertTrue(error.userMessage.contains("502") || error.userMessage.startsWith("HTTP"))
+    }
+
+    @Test
+    fun `blank API message body falls back without empty banner text`() {
+        val error = toAppError(
+            AppError.Provider.GITHUB,
+            httpException(500, """{"message":"   "}"""),
+        )
+        assertTrue(error.userMessage.isNotBlank())
+    }
 }

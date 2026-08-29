@@ -1,7 +1,12 @@
 package dev.repochat.ui.chat
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -11,6 +16,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,21 +33,26 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Refresh
@@ -77,6 +88,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -88,13 +102,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.repochat.R
 import dev.repochat.core.model.AppError
+import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.ui.components.EmptyState
 import dev.repochat.ui.components.InfoChip
 import dev.repochat.ui.components.bounce
 import dev.repochat.ui.theme.Teal400
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -156,9 +173,36 @@ fun ChatScreen(
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val attachFailedText = stringResource(R.string.chat_attach_failed)
+    val attachTooLargeText = stringResource(R.string.chat_attach_too_large)
+
+    // OpenDocument accepts images + text/code so users can attach screenshots
+    // or source files without switching pickers. "*/*" is intentionally broad
+    // — content is classified by MIME / extension after the pick.
+    val pickFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            // Persist read access across process death for the pending chip.
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            // Some providers don't support persistable grants — still readable now.
+        }
+        val meta = readAttachmentMeta(context, uri)
+        viewModel.setPendingAttachment(meta)
+    }
 
     val session = state.session
-    val canSend = session != null && !state.typing && !state.approvalPending && !state.approving
+    val hasAttachment = state.pendingAttachment != null
+    val canSend = session != null &&
+        !state.typing &&
+        !state.approvalPending &&
+        !state.approving &&
+        (input.isNotBlank() || hasAttachment)
     val workingBranch = session?.workingBranch ?: session?.let { "ai-chat/${it.sessionId}" }
 
     Scaffold(
@@ -279,7 +323,7 @@ fun ChatScreen(
 
             if (state.messages.isEmpty() && !state.typing) {
                 EmptyChat(
-                    onSuggestion = viewModel::send,
+                    onSuggestion = { viewModel.send(it) },
                     modifier = Modifier.weight(1f),
                 )
             } else {
@@ -321,9 +365,48 @@ fun ChatScreen(
                 input = input,
                 onInputChange = { input = it },
                 canSend = canSend,
+                pendingAttachment = state.pendingAttachment,
+                onAttach = {
+                    pickFile.launch(
+                        arrayOf(
+                            "image/*",
+                            "text/*",
+                            "application/json",
+                            "application/xml",
+                            "application/javascript",
+                            "application/typescript",
+                            "application/x-yaml",
+                            "application/yaml",
+                            "application/toml",
+                            "application/*",
+                        ),
+                    )
+                },
+                onRemoveAttachment = viewModel::clearPendingAttachment,
                 onSend = {
-                    viewModel.send(input)
+                    val pending = state.pendingAttachment
+                    val typed = input
                     input = ""
+                    if (pending == null) {
+                        viewModel.send(typed)
+                    } else {
+                        scope.launch {
+                            val loaded = withContext(Dispatchers.IO) {
+                                loadAttachment(context, pending)
+                            }
+                            when (loaded) {
+                                is AttachmentLoad.Ok -> viewModel.send(typed, loaded.attachment)
+                                is AttachmentLoad.TooLarge -> {
+                                    snackbarHostState.showSnackbar(attachTooLargeText)
+                                    viewModel.clearPendingAttachment()
+                                }
+                                is AttachmentLoad.Failed -> {
+                                    snackbarHostState.showSnackbar(attachFailedText)
+                                    viewModel.clearPendingAttachment()
+                                }
+                            }
+                        }
+                    }
                 },
                 onApprove = viewModel::approveChange,
                 onReject = viewModel::rejectChange,
@@ -537,6 +620,9 @@ private fun BottomBar(
     input: String,
     onInputChange: (String) -> Unit,
     canSend: Boolean,
+    pendingAttachment: PendingAttachment?,
+    onAttach: () -> Unit,
+    onRemoveAttachment: () -> Unit,
     onSend: () -> Unit,
     onApprove: () -> Unit,
     onReject: () -> Unit,
@@ -589,7 +675,34 @@ private fun BottomBar(
                     }
                 }
             } else {
+                AnimatedVisibility(
+                    visible = pendingAttachment != null,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    pendingAttachment?.let { attachment ->
+                        AttachmentChip(
+                            attachment = attachment,
+                            onRemove = onRemoveAttachment,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onAttach,
+                        modifier = Modifier.size(44.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AttachFile,
+                            contentDescription = stringResource(R.string.chat_attach),
+                            tint = if (pendingAttachment != null) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                     OutlinedTextField(
                         value = input,
                         onValueChange = onInputChange,
@@ -603,20 +716,20 @@ private fun BottomBar(
                         modifier = Modifier
                             .size(48.dp)
                             .background(
-                                color = if (canSend && input.isNotBlank()) {
+                                color = if (canSend) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
                                     MaterialTheme.colorScheme.surfaceVariant
                                 },
                                 shape = CircleShape,
                             )
-                            .bounce { if (canSend && input.isNotBlank()) onSend() },
+                            .bounce { if (canSend) onSend() },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.Send,
                             contentDescription = stringResource(R.string.chat_send),
-                            tint = if (canSend && input.isNotBlank()) {
+                            tint = if (canSend) {
                                 MaterialTheme.colorScheme.onPrimary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -627,6 +740,207 @@ private fun BottomBar(
             }
         }
     }
+}
+
+@Composable
+private fun AttachmentChip(
+    attachment: PendingAttachment,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val thumb = remember(attachment.uriString) {
+        if (!attachment.isImage) return@remember null
+        runCatching {
+            context.contentResolver.openInputStream(Uri.parse(attachment.uriString))?.use { stream ->
+                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                BitmapFactory.decodeStream(stream, null, opts)?.asImageBitmap()
+            }
+        }.getOrNull()
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(start = 8.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)
+                .widthIn(max = 280.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (thumb != null) {
+                Image(
+                    bitmap = thumb,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            RoundedCornerShape(8.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (attachment.isImage) {
+                            Icons.Rounded.Description
+                        } else {
+                            Icons.Rounded.InsertDriveFile
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = attachment.displayName,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.chat_attach_remove),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+private sealed interface AttachmentLoad {
+    data class Ok(val attachment: ChatAttachment) : AttachmentLoad
+    data object TooLarge : AttachmentLoad
+    data object Failed : AttachmentLoad
+}
+
+private const val MAX_ATTACHMENT_BYTES = 5L * 1024L * 1024L
+
+private val TEXT_EXTENSIONS = setOf(
+    "txt", "md", "markdown", "json", "xml", "yml", "yaml", "toml", "csv",
+    "kt", "kts", "java", "js", "jsx", "ts", "tsx", "py", "rb", "go", "rs",
+    "c", "h", "cpp", "hpp", "cs", "swift", "m", "mm", "php", "sql", "sh",
+    "bash", "zsh", "ps1", "gradle", "properties", "ini", "cfg", "conf",
+    "html", "htm", "css", "scss", "sass", "less", "svg", "r", "pl", "lua",
+    "dart", "scala", "groovy", "cmake", "makefile", "dockerfile", "gitignore",
+    "env", "log", "diff", "patch",
+)
+
+private fun readAttachmentMeta(context: android.content.Context, uri: Uri): PendingAttachment {
+    var name = "attachment"
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (cursor.moveToFirst() && nameIdx >= 0) {
+            name = cursor.getString(nameIdx) ?: name
+        }
+    }
+    val mime = context.contentResolver.getType(uri)
+    val isImage = mime?.startsWith("image/") == true ||
+        name.substringAfterLast('.', "").lowercase() in setOf(
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic",
+        )
+    return PendingAttachment(
+        uriString = uri.toString(),
+        displayName = name,
+        mimeType = mime,
+        isImage = isImage,
+    )
+}
+
+private fun loadAttachment(
+    context: android.content.Context,
+    pending: PendingAttachment,
+): AttachmentLoad {
+    val uri = Uri.parse(pending.uriString)
+    return try {
+        // Guard on declared size when available.
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (cursor.moveToFirst() && sizeIdx >= 0 && !cursor.isNull(sizeIdx)) {
+                if (cursor.getLong(sizeIdx) > MAX_ATTACHMENT_BYTES) return AttachmentLoad.TooLarge
+            }
+        }
+
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: return AttachmentLoad.Failed
+        if (bytes.size.toLong() > MAX_ATTACHMENT_BYTES) return AttachmentLoad.TooLarge
+
+        if (pending.isImage) {
+            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            AttachmentLoad.Ok(
+                ChatAttachment(
+                    displayName = pending.displayName,
+                    mimeType = pending.mimeType ?: "image/*",
+                    imageBase64 = b64,
+                ),
+            )
+        } else if (looksLikeText(pending.displayName, pending.mimeType, bytes)) {
+            val text = bytes.toString(Charsets.UTF_8)
+            AttachmentLoad.Ok(
+                ChatAttachment(
+                    displayName = pending.displayName,
+                    mimeType = pending.mimeType ?: "text/plain",
+                    textContent = text,
+                ),
+            )
+        } else {
+            // Unknown binary — surface a short note rather than dumping garbage.
+            AttachmentLoad.Ok(
+                ChatAttachment(
+                    displayName = pending.displayName,
+                    mimeType = pending.mimeType,
+                    textContent = "(binary file; ${bytes.size} bytes — contents not included)",
+                ),
+            )
+        }
+    } catch (_: Exception) {
+        AttachmentLoad.Failed
+    }
+}
+
+private fun looksLikeText(name: String, mime: String?, bytes: ByteArray): Boolean {
+    if (mime != null) {
+        if (mime.startsWith("text/")) return true
+        if (mime in setOf(
+                "application/json",
+                "application/xml",
+                "application/javascript",
+                "application/typescript",
+                "application/x-yaml",
+                "application/yaml",
+                "application/toml",
+                "application/x-sh",
+                "application/sql",
+            )
+        ) return true
+    }
+    val ext = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+    if (ext in TEXT_EXTENSIONS) return true
+    // Heuristic: mostly printable / whitespace and no NULs in the first 2 KB.
+    val sample = bytes.take(2_048)
+    if (sample.any { it == 0.toByte() }) return false
+    val nonText = sample.count { b ->
+        val c = b.toInt() and 0xFF
+        c < 0x09 || (c in 0x0E..0x1F)
+    }
+    return nonText < sample.size / 10
 }
 
 @Composable

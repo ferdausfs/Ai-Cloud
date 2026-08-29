@@ -47,14 +47,33 @@ object PromptBuilder {
     }
 
     fun fileContentMessage(path: String, file: GitFile): String {
-        val maxChars = 80_000
-        val content = if (file.content.length > maxChars) {
-            file.content.take(maxChars) + "\n\n... (file content truncated at $maxChars characters; read around this file with targeted searches if you need more)"
-        } else {
-            file.content
-        }
+        val content = capFileContent(file.content)
         return "FILE CONTENT - $path (size ${file.sizeBytes} bytes):\n$content"
     }
+
+    /**
+     * Formats a user-attached local file the same way repo file contents are
+     * presented, so the model treats both sources consistently. Large files
+     * are truncated at [FILE_CONTENT_MAX_CHARS].
+     */
+    fun attachedFileMessage(filename: String, content: String): String {
+        val body = capFileContent(content)
+        return "ATTACHED FILE - $filename:\n$body"
+    }
+
+    /**
+     * Note placed in the prompt when the user attached an image. When the
+     * configured model cannot accept vision input the bytes are omitted and
+     * this text explains why, so the model (and user) aren't left guessing.
+     */
+    fun attachedImageMessage(filename: String, visionSupported: Boolean): String =
+        if (visionSupported) {
+            "ATTACHED IMAGE - $filename: image data is included with this message for the vision model."
+        } else {
+            "ATTACHED IMAGE - $filename: the user attached an image, but the configured model " +
+                "does not support vision input so the image bytes were not sent. " +
+                "Ask the user to describe the image if you need its contents."
+        }
 
     fun fileNotFoundMessage(path: String): String =
         "FILE NOT FOUND - $path does not exist on the working branch. " +
@@ -62,6 +81,34 @@ object PromptBuilder {
 
     fun binaryFileMessage(path: String): String =
         "BINARY FILE - $path cannot be read or edited by this app. Work around it and explain any limitation to the user."
+
+    /** True when the model name is a known vision-capable Ollama family. */
+    fun modelSupportsVision(modelName: String): Boolean {
+        val n = modelName.lowercase()
+        return VISION_MODEL_MARKERS.any { it in n }
+    }
+
+    private fun capFileContent(content: String): String =
+        if (content.length > FILE_CONTENT_MAX_CHARS) {
+            content.take(FILE_CONTENT_MAX_CHARS) +
+                "\n\n... (file content truncated at $FILE_CONTENT_MAX_CHARS characters; " +
+                "read around this file with targeted searches if you need more)"
+        } else {
+            content
+        }
+
+    private const val FILE_CONTENT_MAX_CHARS = 80_000
+
+    private val VISION_MODEL_MARKERS = listOf(
+        "llava",
+        "vision",
+        "bakllava",
+        "moondream",
+        "minicpm-v",
+        "qwen2-vl",
+        "qwen-vl",
+        "gemma3", // gemma3 family accepts images on Ollama
+    )
 
     /**
      * Keeps the message list inside a hard character budget: the system prompt

@@ -17,7 +17,16 @@ enum class OllamaRole(val wireName: String) {
     ASSISTANT("assistant"),
 }
 
-data class OllamaMessage(val role: OllamaRole, val content: String)
+/**
+ * One chat turn for the Ollama API. [images] holds base64-encoded image
+ * payloads (no data-URI prefix) for vision-capable models; leave null for
+ * text-only turns.
+ */
+data class OllamaMessage(
+    val role: OllamaRole,
+    val content: String,
+    val images: List<String>? = null,
+)
 
 object AiActionParser {
 
