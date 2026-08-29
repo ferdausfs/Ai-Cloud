@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RepoChat</string>
+    <string name="app_tagline">AI pair programmer for your GitHub repositories</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_ollama_section">Ollama Cloud</string>
+    <string name="settings_ollama_key">Ollama API key</string>
+    <string name="settings_model_name">Model name</string>
+    <string name="settings_model_hint">gpt-oss:120b-cloud</string>
+    <string name="settings_github_section">GitHub</string>
+    <string name="settings_github_pat">Personal access token</string>
+    <string name="settings_github_pat_help">Needs the repo scope so the AI can read files and open pull requests.</string>
+    <string name="settings_save">Save settings</string>
+    <string name="settings_saved">Saved — stored encrypted with Android Keystore</string>
+    <string name="settings_continue">Browse repositories</string>
+    <string name="settings_resume">Pick up where you left off</string>
+    <string name="settings_resume_in">Continue in %1$s</string>
+    <string name="settings_security_note">Keys and tokens are stored with EncryptedSharedPreferences, backed by the Android Keystore. They are sent only to their respective APIs (ollama.com and api.github.com) — never logged, backed up, or shared.</string>
+    <string name="settings_test">Test connection</string>
+    <string name="settings_testing">Testing…</string>
+    <string name="settings_show">Show</string>
+    <string name="settings_hide">Hide</string>
+
+    <!-- Repo picker -->
+    <string name="repos_title">Select repository</string>
+    <string name="repos_search_hint">Search repositories</string>
+    <string name="repos_private">Private</string>
+    <string name="repos_public">Public</string>
+    <string name="repos_empty_title">No repositories yet</string>
+    <string name="repos_empty_body">Create a repository on GitHub and it will show up here.</string>
+    <string name="repos_no_match_title">No matches</string>
+    <string name="repos_no_match_body">Nothing matches “%1$s”. Try a different search term.</string>
+    <string name="repos_retry">Retry</string>
+    <string name="repos_open_settings">Open Settings</string>
+    <string name="repos_error_title">Couldn\'t load repositories</string>
+    <string name="repos_updated">Updated %1$s</string>
+
+    <!-- Chat -->
+    <string name="chat_empty_title">Your AI pair programmer</string>
+    <string name="chat_empty_body">Ask me to add a feature, fix a bug, or explain this codebase. I\'ll read the files I need and propose edits — you approve every commit.</string>
+    <string name="chat_input_hint">Ask me to edit this repo…</string>
+    <string name="chat_input_approval_hint">Approve or reject the proposed change…</string>
+    <string name="chat_send">Send message</string>
+    <string name="chat_pr">Create pull request</string>
+    <string name="chat_more">More options</string>
+    <string name="chat_clear">Clear conversation</string>
+    <string name="chat_settings">Settings</string>
+    <string name="chat_back">Back</string>
+    <string name="chat_retry">Retry</string>
+    <string name="chat_read_bubble">read into context</string>
+    <string name="chat_pending">Pending review</string>
+    <string name="chat_proposed_change">Proposed change</string>
+    <string name="chat_new_file">new file</string>
+    <string name="chat_approve">Approve &amp; commit</string>
+    <string name="chat_reject">Reject</string>
+    <string name="chat_committing">Committing…</string>
+    <string name="chat_committed_to">Committed to %1$s</string>
+    <string name="chat_declined">Change declined — nothing was committed.</string>
+    <string name="chat_branch_info_title">Safe branch workflow</string>
+    <string name="chat_branch_info_body">All AI commits go to the working branch %1$s — never directly to %2$s. When you\'re happy with the changes, create a pull request to merge them.</string>
+    <string name="chat_branch_info_got_it">Got it</string>
+    <string name="chat_tree_truncated">large tree — context trimmed</string>
+    <string name="chat_expired_approval">This proposal expired — send a new message to continue.</string>
+    <string name="chat_pr_dialog_title">Pull request created</string>
+    <string name="chat_pr_dialog_body">PR #%1$d is ready: %2$s. Merge it on GitHub when you\'re ready.</string>
+    <string name="chat_pr_dialog_open">Open in browser</string>
+    <string name="chat_pr_dialog_copy">Copy link</string>
+    <string name="chat_pr_dialog_done">Done</string>
+    <string name="chat_pr_creating">Creating pull request…</string>
+    <string name="chat_pr_failed_title">Could not create the pull request</string>
+    <string name="chat_copied">Link copied</string>
+    <string name="chat_clear_confirm_title">Clear conversation?</string>
+    <string name="chat_clear_confirm_body">The message history for this repository will be deleted. Files already committed to the working branch are not affected.</string>
+    <string name="chat_clear_confirm_yes">Clear</string>
+    <string name="chat_cancel">Cancel</string>
+    <string name="chat_suggest_fix">Fix a bug</string>
+    <string name="chat_suggest_explain">Explain this project</string>
+    <string name="chat_suggest_test">Add unit tests</string>
+    <string name="chat_suggest_readme">Improve the README</string>
+    <string name="chat_additions_removals">+%1$d −%2$d</string>
+    <string name="chat_error_unauthorized_action">Open Settings</string>
+</resources>
