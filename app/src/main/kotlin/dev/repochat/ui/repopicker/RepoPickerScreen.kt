@@ -59,7 +59,6 @@ import dev.repochat.core.model.RepoSummary
 import dev.repochat.ui.components.EmptyState
 import dev.repochat.ui.components.InfoChip
 import dev.repochat.ui.components.ShimmerBox
-import dev.repochat.ui.components.bounce
 import dev.repochat.ui.components.timeAgo
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)

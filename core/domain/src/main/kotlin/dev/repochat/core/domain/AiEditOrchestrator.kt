@@ -64,6 +64,9 @@ class AiEditOrchestrator @Inject constructor(
 
         val history = chat.recentMessages(request.repoKey, request.sessionId, limit = 8)
             .filter { it.kind == MessageKind.TEXT && !it.text.isNullOrBlank() }
+            // The most recent message is the user message that triggered this
+            // turn and is passed separately as the TASK — don't duplicate it.
+            .dropLast(1)
             .map {
                 OllamaMessage(
                     role = if (it.role == ChatRole.USER) OllamaRole.USER else OllamaRole.ASSISTANT,
