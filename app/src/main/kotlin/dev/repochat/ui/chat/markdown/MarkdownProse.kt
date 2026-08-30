@@ -139,42 +139,23 @@ fun MarkdownProse(
 }
 
 /**
- * Detects taps on URL string annotations. Implemented with [androidx.compose.foundation.text.BasicText]
- * + pointer input so we don't depend on deprecated ClickableText or newer LinkAnnotation APIs.
+ * Renders annotated prose. When URL string-annotations are present, the whole
+ * paragraph is clickable and opens the first link (good enough for chat replies).
  */
 @Composable
 private fun MarkdownClickableText(
     text: AnnotatedString,
-    style: androidx.compose.ui.text.TextStyle,
+    style: TextStyle,
     modifier: Modifier = Modifier,
     onUrl: (String) -> Unit,
 ) {
-    // Use Material Text which still supports AnnotatedString; links look underlined.
-    // Tap handling: if the string has no URL annotations, plain Text is enough.
-    val hasLinks = remember(text) { text.getStringAnnotations("URL", 0, text.length).isNotEmpty() }
-    if (!hasLinks) {
-        Text(text = text, style = style, modifier = modifier)
-        return
-    }
-    // For linked prose, show the annotated text; users can long-press-select the URL
-    // text and we also make the whole paragraph open the first link on click via
-    // a simple clickable modifier when there's exactly one link spanning most of it.
     val urls = remember(text) { text.getStringAnnotations("URL", 0, text.length) }
-    Text(
-        text = text,
-        style = style,
-        modifier = modifier.then(
-            if (urls.size == 1) {
-                Modifier.then(
-                    androidx.compose.foundation.clickable {
-                        onUrl(urls[0].item)
-                    },
-                )
-            } else {
-                Modifier
-            },
-        ),
-    )
+    val clickMod = if (urls.isNotEmpty()) {
+        modifier.clickable { onUrl(urls.first().item) }
+    } else {
+        modifier
+    }
+    Text(text = text, style = style, modifier = clickMod)
 }
 
 private sealed interface ProseBlock {
