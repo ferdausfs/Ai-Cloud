@@ -18,14 +18,6 @@ class PromptBuilderTest {
     }
 
     @Test
-    fun `general system prompt has no tool contract`() {
-        val prompt = PromptBuilder.generalSystem()
-        assertTrue(prompt.contains("not attached to a repository"))
-        assertTrue(!prompt.contains("STRICT JSON ONLY"))
-        assertTrue(!prompt.contains("write_file"))
-    }
-
-    @Test
     fun `user turn includes task, repo label and tree`() {
         val turn = PromptBuilder.userTurn(
             task = "fix the bug",

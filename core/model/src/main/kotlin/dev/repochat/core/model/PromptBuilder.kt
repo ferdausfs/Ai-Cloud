@@ -7,19 +7,6 @@ package dev.repochat.core.model
  */
 object PromptBuilder {
 
-    /**
-     * Plain conversational system prompt for general (no-repo) chat.
-     * No JSON tool contract — free-form markdown replies are expected.
-     */
-    fun generalSystem(): String = """
-        You are RepoChat, a helpful AI coding assistant in a mobile app.
-        Answer clearly and concisely. Use markdown when it helps (lists, bold,
-        fenced code blocks with a language tag). Do not invent repository file
-        contents or claim you edited GitHub — this conversation is not attached
-        to a repository. If the user needs repo edits, suggest starting a
-        "Chat with a repo" session from the app home screen.
-    """.trimIndent()
-
     fun system(): String = """
         You are RepoChat, an AI software engineer embedded in a mobile app that edits files in a GitHub repository on the user's behalf.
 
