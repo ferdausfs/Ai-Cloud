@@ -47,7 +47,15 @@ fun AppNavHost(
                     navController.navigate(RepoPickerRoute) { launchSingleTop = true }
                 },
                 onResumeRepo = { owner, repo, defaultBranch ->
-                    navController.navigate(ChatRoute(owner, repo, defaultBranch)) {
+                    navController.navigate(
+                        ChatRoute(
+                            owner = owner,
+                            repo = repo,
+                            defaultBranch = defaultBranch,
+                            mode = "REPO",
+                            repoKey = "$owner/$repo",
+                        ),
+                    ) {
                         // Reuse any existing chat entry for this repo instead
                         // of stacking duplicates.
                         popUpTo(SettingsRoute) { inclusive = true }
@@ -69,7 +77,15 @@ fun AppNavHost(
                     }
                 },
                 onRepoSelected = { repo ->
-                    navController.navigate(ChatRoute(repo.owner, repo.name, repo.defaultBranch)) {
+                    navController.navigate(
+                        ChatRoute(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            defaultBranch = repo.defaultBranch,
+                            mode = "REPO",
+                            repoKey = repo.fullName,
+                        ),
+                    ) {
                         launchSingleTop = true
                     }
                 },

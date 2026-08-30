@@ -111,4 +111,14 @@
     <string name="settings_battery_section">Background reliability</string>
     <string name="settings_battery_tip">AI turns keep running when you leave the app via a foreground service. On some phones (especially Xiaomi/MIUI, Vivo, Oppo) you may also need to set this app to “No restrictions” / allow Autostart under battery settings.</string>
     <string name="settings_battery_open">Open app battery settings</string>
+    <string name="chat_general_title">General chat</string>
+    <string name="chat_input_hint_general">Ask anything…</string>
+    <string name="chat_empty_title_general">What can I help with?</string>
+    <string name="chat_empty_body_general">Coding questions, explanations, brainstorming — no repository attached.</string>
+    <string name="chat_clear_confirm_body_general">This clears the conversation history on this device.</string>
+    <string name="chat_suggest_general_explain">Explain sealed classes in Kotlin</string>
+    <string name="chat_suggest_general_code">Write a debounce helper in Kotlin</string>
+    <string name="chat_suggest_general_debug">How do I debug a Compose recomposition loop?</string>
+    <string name="turn_notification_title_general">RepoChat is thinking</string>
+    <string name="settings_general_chat">Start general chat</string>
 </resources>

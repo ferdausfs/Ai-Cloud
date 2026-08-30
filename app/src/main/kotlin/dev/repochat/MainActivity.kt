@@ -67,10 +67,27 @@ class MainActivity : ComponentActivity() {
 
     private fun chatRouteFrom(intent: Intent?): ChatRoute? {
         if (intent?.action != ACTION_OPEN_CHAT) return null
+        val mode = intent.getStringExtra(EXTRA_MODE)?.takeIf { it.isNotBlank() } ?: "REPO"
+        val repoKey = intent.getStringExtra(EXTRA_REPO_KEY).orEmpty()
+        if (mode.equals("GENERAL", ignoreCase = true)) {
+            return ChatRoute(
+                owner = "",
+                repo = "",
+                defaultBranch = "",
+                mode = "GENERAL",
+                repoKey = repoKey,
+            )
+        }
         val owner = intent.getStringExtra(EXTRA_OWNER)?.takeIf { it.isNotBlank() } ?: return null
         val repo = intent.getStringExtra(EXTRA_REPO)?.takeIf { it.isNotBlank() } ?: return null
         val branch = intent.getStringExtra(EXTRA_DEFAULT_BRANCH)?.takeIf { it.isNotBlank() } ?: "main"
-        return ChatRoute(owner, repo, branch)
+        return ChatRoute(
+            owner = owner,
+            repo = repo,
+            defaultBranch = branch,
+            mode = "REPO",
+            repoKey = repoKey.ifBlank { "$owner/$repo" },
+        )
     }
 
     companion object {
@@ -78,5 +95,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OWNER = "owner"
         const val EXTRA_REPO = "repo"
         const val EXTRA_DEFAULT_BRANCH = "default_branch"
+        const val EXTRA_MODE = "mode"
+        const val EXTRA_REPO_KEY = "repo_key"
     }
 }
