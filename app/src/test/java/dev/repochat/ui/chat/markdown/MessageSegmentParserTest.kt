@@ -68,7 +68,10 @@ class MessageSegmentParserTest {
             Some **bold** and `code`.
             """.trimIndent(),
         )
-        assertTrue(blocks.any { it.toString().contains("Title") })
+        assertTrue(blocks.any { it is ProseBlock.Heading && it.text == "Title" })
+        assertTrue(blocks.any { it is ProseBlock.Bullet })
+        assertTrue(blocks.any { it is ProseBlock.Numbered })
+        assertTrue(blocks.any { it is ProseBlock.Paragraph && it.text.contains("bold") })
         assertTrue(blocks.size >= 4)
     }
 

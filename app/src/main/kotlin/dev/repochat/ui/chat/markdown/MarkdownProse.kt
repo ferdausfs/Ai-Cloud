@@ -158,7 +158,8 @@ private fun MarkdownClickableText(
     Text(text = text, style = style, modifier = clickMod)
 }
 
-private sealed interface ProseBlock {
+/** Visible to unit tests in the same module; not part of the public UI API. */
+internal sealed interface ProseBlock {
     data class Heading(val level: Int, val text: String) : ProseBlock
     data class Bullet(val text: String) : ProseBlock
     data class Numbered(val number: Int, val text: String) : ProseBlock
