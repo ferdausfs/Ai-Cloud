@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.repochat.MainActivity
 import dev.repochat.R
@@ -45,11 +46,6 @@ class AiTurnService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelfSafely()
-            return START_NOT_STICKY
-        }
-
         owner = intent?.getStringExtra(EXTRA_OWNER).orEmpty()
         repo = intent?.getStringExtra(EXTRA_REPO).orEmpty()
         defaultBranch = intent?.getStringExtra(EXTRA_DEFAULT_BRANCH).orEmpty()
