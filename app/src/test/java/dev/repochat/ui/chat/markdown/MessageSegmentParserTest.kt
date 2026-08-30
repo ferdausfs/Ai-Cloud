@@ -82,7 +82,10 @@ class MessageSegmentParserTest {
             inlineCodeFg = androidx.compose.ui.graphics.Color.DarkGray,
         )
         assertEquals("say hi and x plus link", a.text)
-        assertTrue(a.getStringAnnotations("URL", 0, a.length).isNotEmpty())
+        // LinkAnnotation.Url is attached; plain text no longer contains markdown markers.
+        assertTrue(!a.text.contains("**"))
+        assertTrue(!a.text.contains("`"))
+        assertTrue(a.text.contains("link"))
     }
 
     @Test

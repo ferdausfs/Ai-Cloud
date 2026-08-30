@@ -3,7 +3,6 @@ package dev.repochat.ui.chat.markdown
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -11,15 +10,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,19 +45,6 @@ fun MarkdownProse(
     val inlineCodeFg = if (isOnPrimary) contentColor else scheme.onSurfaceVariant
     val bodyStyle = MaterialTheme.typography.bodyLarge.copy(color = contentColor)
     val blocks = remember(markdown) { splitProseBlocks(markdown) }
-    val uriHandler = LocalUriHandler.current
-
-    fun openLink(annotated: AnnotatedString, offset: Int) {
-        annotated.getStringAnnotations("URL", offset, offset)
-            .firstOrNull()
-            ?.let {
-                try {
-                    uriHandler.openUri(it.item)
-                } catch (_: Exception) {
-                    // No handler / bad URL — ignore.
-                }
-            }
-    }
 
     SelectionContainer {
         Column(modifier = modifier.fillMaxWidth()) {
@@ -79,53 +65,33 @@ fun MarkdownProse(
                     is ProseBlock.Bullet -> {
                         val annotated = remember(block.text, contentColor, linkColor, inlineCodeBg, inlineCodeFg) {
                             annotateInlineMarkdown(
-                                text = block.text,
+                                text = "•  " + block.text,
                                 baseColor = contentColor,
                                 linkColor = linkColor,
                                 inlineCodeBg = inlineCodeBg,
                                 inlineCodeFg = inlineCodeFg,
                             )
                         }
-                        val full = remember(annotated) {
-                            buildAnnotatedString {
-                                withStyle(bodyStyle.toSpanStyle()) { append("•  ") }
-                                append(annotated)
-                            }
-                        }
-                        val prefixLen = 3 // "•  "
-                        ClickableText(
-                            text = full,
+                        Text(
+                            text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
-                            onClick = { offset ->
-                                openLink(annotated, (offset - prefixLen).coerceAtLeast(0))
-                            },
                         )
                     }
                     is ProseBlock.Numbered -> {
-                        val prefix = "${block.number}.  "
-                        val annotated = remember(block.text, contentColor, linkColor, inlineCodeBg, inlineCodeFg) {
+                        val annotated = remember(block.text, block.number, contentColor, linkColor, inlineCodeBg, inlineCodeFg) {
                             annotateInlineMarkdown(
-                                text = block.text,
+                                text = "${block.number}.  " + block.text,
                                 baseColor = contentColor,
                                 linkColor = linkColor,
                                 inlineCodeBg = inlineCodeBg,
                                 inlineCodeFg = inlineCodeFg,
                             )
                         }
-                        val full = remember(annotated, prefix) {
-                            buildAnnotatedString {
-                                withStyle(bodyStyle.toSpanStyle()) { append(prefix) }
-                                append(annotated)
-                            }
-                        }
-                        ClickableText(
-                            text = full,
+                        Text(
+                            text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
-                            onClick = { offset ->
-                                openLink(annotated, (offset - prefix.length).coerceAtLeast(0))
-                            },
                         )
                     }
                     is ProseBlock.Paragraph -> {
@@ -138,11 +104,10 @@ fun MarkdownProse(
                                 inlineCodeFg = inlineCodeFg,
                             )
                         }
-                        ClickableText(
+                        Text(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 2.dp),
-                            onClick = { offset -> openLink(annotated, offset) },
                         )
                     }
                 }
@@ -205,7 +170,7 @@ internal fun splitProseBlocks(markdown: String): List<ProseBlock> {
 
 /**
  * Inline spans: `code`, **bold**, *italic*, [label](url).
- * Order avoids eating markers inside code spans.
+ * Links use [LinkAnnotation.Url] so Material3 [Text] opens them natively.
  */
 internal fun annotateInlineMarkdown(
     text: String,
@@ -213,8 +178,14 @@ internal fun annotateInlineMarkdown(
     linkColor: Color,
     inlineCodeBg: Color,
     inlineCodeFg: Color,
-): AnnotatedString = buildAnnotatedString {
+): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
     val base = SpanStyle(color = baseColor)
+    val linkStyles = TextLinkStyles(
+        style = SpanStyle(
+            color = linkColor,
+            textDecoration = TextDecoration.Underline,
+        ),
+    )
     var i = 0
     while (i < text.length) {
         when {
@@ -255,14 +226,9 @@ internal fun annotateInlineMarkdown(
                     if (closeUrl > closeLabel) {
                         val label = text.substring(i + 1, closeLabel)
                         val url = text.substring(closeLabel + 2, closeUrl)
-                        val start = length
-                        withStyle(
-                            SpanStyle(
-                                color = linkColor,
-                                textDecoration = TextDecoration.Underline,
-                            ),
-                        ) { append(label) }
-                        addStringAnnotation("URL", url, start, length)
+                        withLink(LinkAnnotation.Url(url, linkStyles)) {
+                            append(label)
+                        }
                         i = closeUrl + 1
                     } else {
                         withStyle(base) { append(text[i]) }
@@ -292,12 +258,3 @@ internal fun annotateInlineMarkdown(
         }
     }
 }
-
-private fun TextStyle.toSpanStyle(): SpanStyle = SpanStyle(
-    color = color,
-    fontSize = fontSize,
-    fontWeight = fontWeight,
-    fontStyle = fontStyle,
-    fontFamily = fontFamily,
-    letterSpacing = letterSpacing,
-)

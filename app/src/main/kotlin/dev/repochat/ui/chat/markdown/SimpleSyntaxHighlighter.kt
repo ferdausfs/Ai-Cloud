@@ -50,6 +50,13 @@ object SimpleSyntaxHighlighter {
     private val NUMBER = Regex("\\b\\d+(\\.\\d+)?[fFlL]?\\b")
     private val IDENT = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
+    /** Match [regex] only if it starts at [index] (portable alternative to matchAt). */
+    private fun matchFrom(regex: Regex, input: String, index: Int): String? {
+        if (index >= input.length) return null
+        val m = regex.find(input, index) ?: return null
+        return if (m.range.first == index) m.value else null
+    }
+
     fun highlight(code: String, language: String?, palette: Palette): AnnotatedString {
         if (code.isEmpty()) return AnnotatedString("")
         val lang = language?.lowercase().orEmpty()
@@ -120,25 +127,24 @@ object SimpleSyntaxHighlighter {
                     continue
                 }
                 // Number
-                val num = NUMBER.matchAt(code, i)
+                val num = matchFrom(NUMBER, code, i)
                 if (num != null) {
                     withStyle(SpanStyle(color = palette.number)) {
-                        append(num.value)
+                        append(num)
                     }
-                    i = num.range.last + 1
+                    i += num.length
                     continue
                 }
                 // Identifier / keyword / type
-                val id = IDENT.matchAt(code, i)
+                val id = matchFrom(IDENT, code, i)
                 if (id != null) {
-                    val word = id.value
                     val style = when {
-                        word in KEYWORDS -> SpanStyle(color = palette.keyword, fontWeight = FontWeight.SemiBold)
-                        TYPE_HINT.matches(word) && word.length > 1 -> SpanStyle(color = palette.type)
+                        id in KEYWORDS -> SpanStyle(color = palette.keyword, fontWeight = FontWeight.SemiBold)
+                        TYPE_HINT.matches(id) && id.length > 1 -> SpanStyle(color = palette.type)
                         else -> SpanStyle(color = palette.plain)
                     }
-                    withStyle(style) { append(word) }
-                    i = id.range.last + 1
+                    withStyle(style) { append(id) }
+                    i += id.length
                     continue
                 }
                 withStyle(SpanStyle(color = palette.plain)) { append(code[i]) }
