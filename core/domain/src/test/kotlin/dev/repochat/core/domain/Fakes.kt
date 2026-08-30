@@ -57,7 +57,19 @@ class FakeGithubService : GithubService {
     var lastCiBranch: String? = null
 
     override suspend fun listRepos(): List<RepoSummary> =
-        listOf(RepoSummary(1, "demo", "acme/demo", false, "desc", "Kotlin", 0L, "main", ""))
+        listOf(
+            RepoSummary(
+                id = 1,
+                name = "demo",
+                fullName = "acme/demo",
+                isPrivate = false,
+                description = "desc",
+                language = "Kotlin",
+                updatedAtMillis = 0L,
+                defaultBranch = "main",
+                htmlUrl = "",
+            ),
+        )
 
     override suspend fun currentUserLogin(): String = "test-user"
 
