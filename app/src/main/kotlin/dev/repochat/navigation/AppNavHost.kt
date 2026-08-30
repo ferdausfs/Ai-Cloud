@@ -14,10 +14,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import dev.repochat.ui.chat.ChatScreen
-import dev.repochat.ui.chats.ChatsHomeScreen
+import dev.repochat.ui.home.HomeScaffold
 import dev.repochat.ui.repos.RepoDetailScreen
-import dev.repochat.ui.repopicker.RepoPickerScreen
-import dev.repochat.ui.settings.SettingsScreen
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -28,7 +26,7 @@ fun AppNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = SettingsRoute,
+        startDestination = HomeRoute,
         modifier = modifier,
         enterTransition = {
             fadeIn(tween(280)) + slideInHorizontally(tween(300)) { it / 6 }
@@ -43,13 +41,22 @@ fun AppNavHost(
             fadeOut(tween(200)) + slideOutHorizontally(tween(240)) { it / 8 }
         },
     ) {
-        composable<SettingsRoute> {
-            SettingsScreen(
-                onBrowseRepos = {
-                    navController.navigate(RepoPickerRoute) { launchSingleTop = true }
-                },
-                onOpenChats = {
-                    navController.navigate(ChatsRoute) { launchSingleTop = true }
+        composable<HomeRoute> {
+            HomeScaffold(
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = this,
+                onOpenChat = { owner, repo, defaultBranch, mode, repoKey ->
+                    navController.navigate(
+                        ChatRoute(
+                            owner = owner,
+                            repo = repo,
+                            defaultBranch = defaultBranch,
+                            mode = mode,
+                            repoKey = repoKey,
+                        ),
+                    ) {
+                        launchSingleTop = true
+                    }
                 },
                 onOpenGeneralChat = {
                     navController.navigate(
@@ -64,51 +71,13 @@ fun AppNavHost(
                         launchSingleTop = true
                     }
                 },
-                onResumeRepo = { owner, repo, defaultBranch ->
-                    navController.navigate(
-                        ChatRoute(
-                            owner = owner,
-                            repo = repo,
-                            defaultBranch = defaultBranch,
-                            mode = "REPO",
-                            repoKey = "$owner/$repo",
-                        ),
-                    ) {
-                        // Reuse any existing chat entry for this repo instead
-                        // of stacking duplicates.
-                        popUpTo(SettingsRoute) { inclusive = true }
+                onOpenRepoDetail = { owner, repo, defaultBranch ->
+                    navController.navigate(RepoDetailRoute(owner, repo, defaultBranch)) {
                         launchSingleTop = true
                     }
                 },
             )
         }
-
-        composable<RepoPickerRoute> {
-            RepoPickerScreen(
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = this,
-                onBack = { navController.popBackStack() },
-                onOpenSettings = {
-                    navController.navigate(SettingsRoute) {
-                        popUpTo(SettingsRoute) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-                onRepoSelected = { repo ->
-                    navController.navigate(
-                        RepoDetailRoute(
-                            owner = repo.owner,
-                            repo = repo.name,
-                            defaultBranch = repo.defaultBranch,
-                        ),
-                    ) {
-                        launchSingleTop = true
-                    }
-                },
-            )
-        }
-
-
 
         composable<RepoDetailRoute> { entry ->
             val route = entry.toRoute<RepoDetailRoute>()
@@ -133,50 +102,6 @@ fun AppNavHost(
             )
         }
 
-        composable<ChatsRoute> {
-            ChatsHomeScreen(
-                onBack = { navController.popBackStack() },
-                onOpenConversation = { summary ->
-                    val s = summary.session
-                    if (s.isGeneral) {
-                        navController.navigate(
-                            ChatRoute(
-                                owner = "",
-                                repo = "",
-                                defaultBranch = "",
-                                mode = "GENERAL",
-                                repoKey = s.repoKey,
-                            ),
-                        ) { launchSingleTop = true }
-                    } else {
-                        navController.navigate(
-                            ChatRoute(
-                                owner = s.owner,
-                                repo = s.repo,
-                                defaultBranch = s.defaultBranch,
-                                mode = "REPO",
-                                repoKey = s.repoKey,
-                            ),
-                        ) { launchSingleTop = true }
-                    }
-                },
-                onNewGeneral = {
-                    navController.navigate(
-                        ChatRoute(
-                            owner = "",
-                            repo = "",
-                            defaultBranch = "",
-                            mode = "GENERAL",
-                            repoKey = "",
-                        ),
-                    ) { launchSingleTop = true }
-                },
-                onNewRepoChat = {
-                    navController.navigate(RepoPickerRoute) { launchSingleTop = true }
-                },
-            )
-        }
-
         composable<ChatRoute> { entry ->
             val route = entry.toRoute<ChatRoute>()
             ChatScreen(
@@ -187,12 +112,18 @@ fun AppNavHost(
                 repoKey = route.repoKey,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = this,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(HomeRoute) { launchSingleTop = true }
+                    }
+                },
                 onOpenSettings = {
-                    navController.navigate(SettingsRoute) { launchSingleTop = true }
+                    navController.navigate(HomeRoute) {
+                        popUpTo(HomeRoute) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 },
             )
         }
     }
 }
-

@@ -62,7 +62,7 @@ fun ChatsHomeScreen(
     onOpenConversation: (ConversationSummary) -> Unit,
     onNewGeneral: () -> Unit,
     onNewRepoChat: () -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     viewModel: ChatsHomeViewModel = hiltViewModel(),
 ) {
@@ -82,11 +82,13 @@ fun ChatsHomeScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = stringResource(R.string.chat_back),
-                        )
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = stringResource(R.string.chat_back),
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

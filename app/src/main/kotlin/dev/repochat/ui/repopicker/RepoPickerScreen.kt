@@ -69,11 +69,13 @@ fun RepoPickerScreen(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onRepoSelected: (RepoSummary) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: RepoPickerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(

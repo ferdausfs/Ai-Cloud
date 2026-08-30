@@ -138,4 +138,5 @@
     <string name="repo_tree_empty_title">Empty repository</string>
     <string name="repo_tree_empty_body">No files found on this branch.</string>
     <string name="repo_file_binary">Binary file — cannot preview in the app.</string>
+    <string name="tab_settings">Settings</string>
 </resources>
