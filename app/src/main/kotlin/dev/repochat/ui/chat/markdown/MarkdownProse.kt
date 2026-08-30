@@ -1,5 +1,6 @@
 package dev.repochat.ui.chat.markdown
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
