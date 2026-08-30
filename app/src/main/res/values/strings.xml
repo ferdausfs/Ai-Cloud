@@ -86,4 +86,17 @@
     <string name="chat_additions_removals">+%1$d −%2$d</string>
     <string name="chat_error_unauthorized_action">Open Settings</string>
     <string name="chat_ci_status">CI status</string>
+
+    <!-- Foreground service / background AI turns -->
+    <string name="turn_notification_channel_name">AI Agent Activity</string>
+    <string name="turn_notification_channel_desc">Shows while RepoChat is talking to Ollama or GitHub so the turn can finish in the background.</string>
+    <string name="turn_notification_title">Working on %1$s</string>
+    <string name="turn_step_starting">Starting…</string>
+    <string name="turn_step_thinking">Thinking…</string>
+    <string name="turn_step_awaiting_approval">Waiting for your approval…</string>
+
+    <!-- Settings: OEM battery whitelist tip -->
+    <string name="settings_battery_section">Background reliability</string>
+    <string name="settings_battery_tip">AI turns keep running when you leave the app via a foreground service. On some phones (especially Xiaomi/MIUI, Vivo, Oppo) you may also need to set this app to “No restrictions” / allow Autostart under battery settings.</string>
+    <string name="settings_battery_open">Open app battery settings</string>
 </resources>
