@@ -11,6 +11,8 @@ class PromptBuilderTest {
         val prompt = PromptBuilder.system()
         assertTrue(prompt.contains("read_file"))
         assertTrue(prompt.contains("write_file"))
+        assertTrue(prompt.contains("create_pull_request"))
+        assertTrue(prompt.contains("check_ci_status"))
         assertTrue(prompt.contains("commit_message"))
         assertTrue(prompt.contains("STRICT JSON ONLY"))
     }

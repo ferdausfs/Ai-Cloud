@@ -66,4 +66,22 @@ class AiActionParserTest {
     fun `rejects git internals`() {
         assertNull(AiActionParser.sanitizePath(".git/config"))
     }
+
+    @Test
+    fun `parses create_pull_request action`() {
+        val action = AiActionParser.parse(
+            """{"action":"create_pull_request","title":"Fix bug","body":"Details here"}""",
+        )
+        assertEquals(AiAction.CreatePullRequest("Fix bug", "Details here"), action)
+    }
+
+    @Test
+    fun `parses check_ci_status with optional branch`() {
+        val withBranch = AiActionParser.parse(
+            """{"action":"check_ci_status","branch":"ai-chat/abc"}""",
+        )
+        assertEquals(AiAction.CheckCiStatus("ai-chat/abc"), withBranch)
+        val without = AiActionParser.parse("""{"action":"check_ci_status"}""")
+        assertEquals(AiAction.CheckCiStatus(null), without)
+    }
 }

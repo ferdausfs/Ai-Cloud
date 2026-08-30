@@ -60,6 +60,15 @@ interface GithubApi {
         @retrofit2.http.Path("repo") repo: String,
         @retrofit2.http.Body body: GithubCreatePullRequestDto,
     ): GithubPullRequestDto
+
+    /** List workflow runs for a branch, most recent first. */
+    @retrofit2.http.GET("repos/{owner}/{repo}/actions/runs")
+    suspend fun listWorkflowRuns(
+        @retrofit2.http.Path("owner") owner: String,
+        @retrofit2.http.Path("repo") repo: String,
+        @retrofit2.http.Query("branch") branch: String,
+        @retrofit2.http.Query("per_page") perPage: Int = 5,
+    ): GithubWorkflowRunsDto
 }
 
 /* ---------------------------- DTOs ---------------------------- */
@@ -145,4 +154,29 @@ data class GithubPullRequestDto(
 )
 
 @Serializable
-data class GithubErrorDto(val message: String? = null)
+data class GithubWorkflowRunsDto(
+    @SerialName("workflow_runs") val runs: List<GithubWorkflowRunDto> = emptyList(),
+)
+
+@Serializable
+data class GithubWorkflowRunDto(
+    val id: Long,
+    val name: String? = null,
+    val status: String? = null, // "queued" | "in_progress" | "completed"
+    val conclusion: String? = null, // "success" | "failure" | "cancelled" | null while running
+    @SerialName("html_url") val htmlUrl: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+)
+
+@Serializable
+data class GithubErrorDto(
+    val message: String? = null,
+    val errors: List<GithubErrorDetailDto>? = null,
+)
+
+@Serializable
+data class GithubErrorDetailDto(
+    val message: String? = null,
+    val code: String? = null,
+    val resource: String? = null,
+)

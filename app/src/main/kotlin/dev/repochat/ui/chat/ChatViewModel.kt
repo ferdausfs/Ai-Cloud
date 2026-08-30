@@ -16,6 +16,7 @@ import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoSession
 import dev.repochat.core.model.TurnEvent
 import dev.repochat.core.model.TurnRequest
+import dev.repochat.core.model.WorkflowRunInfo
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -66,6 +67,8 @@ data class ChatUiState(
     val snackbar: SnackbarEvent = SnackbarEvent(),
     val prState: PrState = PrState.None,
     val pendingAttachment: PendingAttachment? = null,
+    /** Latest known Actions run for the working branch (from check_ci_status). */
+    val ciStatus: WorkflowRunInfo? = null,
 )
 
 @HiltViewModel
@@ -291,6 +294,15 @@ class ChatViewModel @Inject constructor(
                             )
                         }
                         showSnackbar(R.string.chat_declined)
+                    }
+
+                    is TurnEvent.PullRequestCreated -> {
+                        // Same Ready dialog the manual button uses — one code path.
+                        _uiState.update { it.copy(prState = PrState.Ready(event.info)) }
+                    }
+
+                    is TurnEvent.CiStatus -> {
+                        _uiState.update { it.copy(ciStatus = event.run) }
                     }
 
                     is TurnEvent.Error -> {

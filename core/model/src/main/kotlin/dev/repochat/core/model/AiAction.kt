@@ -9,6 +9,8 @@ sealed interface AiAction {
     data class Reply(val text: String) : AiAction
     data class ReadFile(val path: String) : AiAction
     data class WriteFile(val path: String, val content: String, val commitMessage: String) : AiAction
+    data class CreatePullRequest(val title: String, val body: String) : AiAction
+    data class CheckCiStatus(val branchOverride: String? = null) : AiAction
 }
 
 enum class OllamaRole(val wireName: String) {
@@ -37,6 +39,9 @@ object AiActionParser {
         val content: String = "",
         @kotlinx.serialization.SerialName("commit_message") val commitMessage: String = "",
         val message: String = "",
+        val title: String = "",
+        val body: String = "",
+        val branch: String = "",
     )
 
     private val json = kotlinx.serialization.json.Json {
@@ -78,6 +83,20 @@ object AiActionParser {
                         .ifEmpty { "chore: update ${path.substringAfterLast('/')}" }
                     AiAction.WriteFile(path, dto.content, commit)
                 }
+            }
+            "create_pull_request" -> {
+                val title = dto.title.trim().ifEmpty { dto.message.trim() }
+                    .ifEmpty { "AI changes" }
+                    .take(200)
+                val body = dto.body.trim().ifEmpty { dto.content.trim() }
+                    .ifEmpty { "Changes proposed by RepoChat." }
+                    .take(4_000)
+                AiAction.CreatePullRequest(title = title, body = body)
+            }
+            "check_ci_status" -> {
+                val branch = dto.branch.trim().ifEmpty { dto.path.trim() }
+                    .takeIf { it.isNotBlank() }
+                AiAction.CheckCiStatus(branchOverride = branch)
             }
             else -> {
                 val message = dto.message.trim()

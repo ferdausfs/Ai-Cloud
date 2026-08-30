@@ -33,8 +33,13 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
     val apiMessage = try {
         val body = e.response()?.errorBody()?.string().orEmpty()
         when (provider) {
-            AppError.Provider.GITHUB ->
-                errorJson.decodeFromString(GithubErrorDto.serializer(), body).message
+            AppError.Provider.GITHUB -> {
+                // Prefer nested errors[].message (e.g. 422 "No commits between…")
+                // over the generic top-level "Validation Failed".
+                val dto = errorJson.decodeFromString(GithubErrorDto.serializer(), body)
+                dto.errors?.firstNotNullOfOrNull { it.message?.takeIf(String::isNotBlank) }
+                    ?: dto.message
+            }
             AppError.Provider.OLLAMA ->
                 errorJson.decodeFromString(OllamaErrorDto.serializer(), body).error
         }

@@ -191,4 +191,55 @@ class AiEditOrchestratorTest {
         assertEquals(listOf("aGVsbG8="), userMsg.images)
         assertTrue(userMsg.content.contains("vision model"))
     }
+
+    @Test
+    fun `create_pull_request opens PR on working branch then replies`() = runTest {
+        val ollama = FakeOllamaService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"create_pull_request","title":"AI fixes","body":"please review"}""",
+                    """{"action":"reply","message":"PR is up: https://github.com/acme/demo/pull/1"}""",
+                ),
+            ),
+        )
+        val github = FakeGithubService()
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertEquals(Triple("ai-chat/testsess1", "main", "AI fixes"), github.lastPrArgs)
+        assertTrue(events.any { it is TurnEvent.PullRequestCreated })
+        assertTrue(events.any { it is TurnEvent.Reply && it.text.contains("PR is up") })
+        assertTrue(ollama.lastMessages.any { it.content.contains("PULL REQUEST CREATED") })
+    }
+
+    @Test
+    fun `check_ci_status summarizes latest run`() = runTest {
+        val ollama = FakeOllamaService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"check_ci_status"}""",
+                    """{"action":"reply","message":"Build is green."}""",
+                ),
+            ),
+        )
+        val github = FakeGithubService().apply {
+            workflowRuns = listOf(
+                dev.repochat.core.model.WorkflowRunInfo(
+                    id = 9,
+                    name = "Android CI",
+                    status = "completed",
+                    conclusion = "success",
+                    htmlUrl = "https://github.com/acme/demo/actions/runs/9",
+                ),
+            )
+        }
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertEquals("ai-chat/testsess1", github.lastCiBranch)
+        val ci = events.filterIsInstance<TurnEvent.CiStatus>().single()
+        assertEquals("success", ci.run?.conclusion)
+        assertTrue(events.any { it is TurnEvent.Reply && it.text.contains("green") })
+        assertTrue(ollama.lastMessages.any { it.content.contains("CI STATUS") })
+    }
 }

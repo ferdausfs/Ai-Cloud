@@ -92,6 +92,42 @@ data class CommitResult(val path: String, val newSha: String)
 
 data class PullRequestInfo(val number: Long, val htmlUrl: String, val title: String)
 
+/** One GitHub Actions workflow run, used for CI status checks. */
+data class WorkflowRunInfo(
+    val id: Long,
+    val name: String,
+    val status: String,
+    val conclusion: String?,
+    val htmlUrl: String?,
+    val updatedAtMillis: Long? = null,
+) {
+    /** Short human-readable label for chips / chat replies. */
+    fun summarize(): String {
+        val label = name.ifBlank { "CI" }
+        return when {
+            status == "queued" -> "$label: queued"
+            status == "in_progress" -> "$label: in progress"
+            conclusion == "success" -> "$label: success"
+            conclusion == "failure" -> "$label: failed"
+            conclusion == "cancelled" -> "$label: cancelled"
+            conclusion == "skipped" -> "$label: skipped"
+            conclusion != null -> "$label: $conclusion"
+            else -> "$label: $status"
+        }
+    }
+
+    /** Compact chip text. */
+    fun chipLabel(): String = when {
+        status == "queued" -> "CI queued"
+        status == "in_progress" -> "CI running"
+        conclusion == "success" -> "CI passed"
+        conclusion == "failure" -> "CI failed"
+        conclusion == "cancelled" -> "CI cancelled"
+        conclusion != null -> "CI $conclusion"
+        else -> "CI $status"
+    }
+}
+
 data class ConnectionResult(val ok: Boolean, val detail: String)
 
 /**
@@ -131,5 +167,9 @@ sealed interface TurnEvent {
     data class ProposeWrite(val messageId: Long, val change: PendingChange) : TurnEvent
     data class WriteCommitted(val messageId: Long, val change: PendingChange) : TurnEvent
     data class WriteDeclined(val messageId: Long, val change: PendingChange) : TurnEvent
+    /** Model created a pull request mid-conversation. */
+    data class PullRequestCreated(val info: PullRequestInfo) : TurnEvent
+    /** Latest Actions run for the working branch (after check_ci_status). */
+    data class CiStatus(val run: WorkflowRunInfo?) : TurnEvent
     data class Error(val error: AppError) : TurnEvent
 }

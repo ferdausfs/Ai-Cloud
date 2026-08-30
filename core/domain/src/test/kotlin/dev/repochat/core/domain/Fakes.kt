@@ -15,6 +15,7 @@ import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSession
 import dev.repochat.core.model.RepoSummary
 import dev.repochat.core.model.TreeEntry
+import dev.repochat.core.model.WorkflowRunInfo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -49,6 +50,10 @@ class FakeGithubService : GithubService {
     var createdBranch: String? = null
     var committed: Triple<String, String, String?>? = null // path, branch, sha
     var failWith: AppError? = null
+    var lastPr: PullRequestInfo? = null
+    var lastPrArgs: Triple<String, String, String>? = null // head, base, title
+    var workflowRuns: List<WorkflowRunInfo> = emptyList()
+    var lastCiBranch: String? = null
 
     override suspend fun listRepos(): List<RepoSummary> =
         listOf(RepoSummary(1, "demo", "acme/demo", false, "desc", "Kotlin", 0L, "main", ""))
@@ -89,7 +94,24 @@ class FakeGithubService : GithubService {
         base: String,
         title: String,
         body: String,
-    ): PullRequestInfo = PullRequestInfo(1, "https://github.com/$owner/$repo/pull/1", title)
+    ): PullRequestInfo {
+        failWith?.let { throw it }
+        lastPrArgs = Triple(head, base, title)
+        val info = PullRequestInfo(1, "https://github.com/$owner/$repo/pull/1", title)
+        lastPr = info
+        return info
+    }
+
+    override suspend fun listWorkflowRuns(
+        owner: String,
+        repo: String,
+        branch: String,
+        perPage: Int,
+    ): List<WorkflowRunInfo> {
+        failWith?.let { throw it }
+        lastCiBranch = branch
+        return workflowRuns.take(perPage)
+    }
 }
 
 class FakeChatRepository(

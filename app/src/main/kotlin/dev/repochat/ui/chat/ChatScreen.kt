@@ -47,17 +47,21 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -234,6 +238,27 @@ fun ChatScreen(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.bounce { showBranchInfo = true },
+                            )
+                        }
+                        state.ciStatus?.let { ci ->
+                            Spacer(Modifier.width(6.dp))
+                            val (icon, container, content) = ciChipColors(ci.conclusion, ci.status)
+                            InfoChip(
+                                text = ci.chipLabel(),
+                                icon = icon,
+                                containerColor = container,
+                                contentColor = content,
+                                modifier = Modifier.bounce {
+                                    ci.htmlUrl?.let { url ->
+                                        try {
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                            )
+                                        } catch (_: Exception) {
+                                            // No browser — ignore.
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
@@ -564,6 +589,45 @@ private fun SuggestionChip(icon: androidx.compose.ui.graphics.vector.ImageVector
             Spacer(Modifier.width(6.dp))
             Text(text = label, style = MaterialTheme.typography.labelLarge)
         }
+    }
+}
+
+@Composable
+private fun ciChipColors(
+    conclusion: String?,
+    status: String,
+): Triple<
+    androidx.compose.ui.graphics.vector.ImageVector,
+    androidx.compose.ui.graphics.Color,
+    androidx.compose.ui.graphics.Color,
+    > {
+    val scheme = MaterialTheme.colorScheme
+    return when {
+        status == "queued" -> Triple(
+            Icons.Rounded.HourglassEmpty,
+            scheme.surfaceVariant,
+            scheme.onSurfaceVariant,
+        )
+        status == "in_progress" -> Triple(
+            Icons.Rounded.Sync,
+            scheme.tertiaryContainer,
+            scheme.onTertiaryContainer,
+        )
+        conclusion == "success" -> Triple(
+            Icons.Rounded.CheckCircle,
+            scheme.secondaryContainer,
+            scheme.onSecondaryContainer,
+        )
+        conclusion == "failure" -> Triple(
+            Icons.Rounded.ErrorOutline,
+            scheme.errorContainer,
+            scheme.onErrorContainer,
+        )
+        else -> Triple(
+            Icons.Rounded.PlayCircle,
+            scheme.surfaceVariant,
+            scheme.onSurfaceVariant,
+        )
     }
 }
 
