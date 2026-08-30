@@ -123,3 +123,16 @@ core/data/                      Room, secure prefs, Retrofit APIs, Hilt module
 - File paths from the model are sanitized (no `..`, no `.git`).
 - If a file changed upstream, GitHub returns 409 and the app asks you to simply
   resend the message so the file is re-read first.
+
+## Background AI turns
+
+In-flight turns run inside `AiTurnCoordinator` (application scope) behind an
+`AiTurnService` foreground service (`dataSync`) so leaving the app (home /
+screen off) does not cancel the Ollama/GitHub network call. Results are still
+persisted in Room — reopen chat to see the completed reply/diff/PR.
+
+Even with a foreground service, some OEMs (especially Xiaomi/MIUI, Vivo, Oppo)
+add a manual battery-optimization / Autostart whitelist. Settings has a one-line
+tip and a button that opens this app’s system details page
+(`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`) so you can set battery to
+“No restrictions”.

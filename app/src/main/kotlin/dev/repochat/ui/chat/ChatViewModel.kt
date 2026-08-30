@@ -4,22 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.repochat.R
-import dev.repochat.core.domain.AiTurnRunner
 import dev.repochat.core.domain.ChatRepository
 import dev.repochat.core.domain.CreatePullRequestUseCase
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
-import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoSession
-import dev.repochat.core.model.TurnEvent
 import dev.repochat.core.model.TurnRequest
 import dev.repochat.core.model.WorkflowRunInfo
+import dev.repochat.turn.AiTurnCoordinator
+import dev.repochat.turn.AiTurnSnackbar
 import javax.inject.Inject
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,11 +69,16 @@ data class ChatUiState(
     val ciStatus: WorkflowRunInfo? = null,
 )
 
+/**
+ * UI-facing ViewModel. Turn execution is delegated to [AiTurnCoordinator] so
+ * work survives Activity/ViewModel teardown (paired with AiTurnService FGS).
+ * Chat history still comes from Room — returning to the app shows completed turns.
+ */
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
-    private val turnRunner: AiTurnRunner,
     private val createPullRequest: CreatePullRequestUseCase,
+    private val turnCoordinator: AiTurnCoordinator,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -85,14 +88,10 @@ class ChatViewModel @Inject constructor(
     private var repo: String = ""
     private var repoKey: String = ""
     private var defaultBranch: String = ""
-    private var lastUserInput: String? = null
-    private var lastAttachment: ChatAttachment? = null
 
     private var messageJob: Job? = null
+    private var turnObserveJob: Job? = null
     private var snackbarCounter = 0L
-
-    /** Gate the orchestrator waits on when a write proposal is shown. */
-    private val approvalFlow = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
 
     fun start(owner: String, repo: String, defaultBranch: String) {
         val key = "$owner/$repo"
@@ -101,8 +100,6 @@ class ChatViewModel @Inject constructor(
         this.repo = repo
         this.repoKey = key
         this.defaultBranch = defaultBranch
-        this.lastUserInput = null
-        this.lastAttachment = null
         _uiState.value = ChatUiState()
 
         viewModelScope.launch { chatRepository.ensureSession(owner, repo, defaultBranch) }
@@ -119,6 +116,46 @@ class ChatViewModel @Inject constructor(
                     _uiState.update { it.copy(messages = messages) }
                 }
         }
+
+        // Mirror coordinator live state for this repo (and any in-flight turn
+        // that continued while we were backgrounded).
+        turnObserveJob?.cancel()
+        turnObserveJob = viewModelScope.launch {
+            turnCoordinator.state.collect { live ->
+                if (live.repoKey.isNotEmpty() && live.repoKey != repoKey) {
+                    // Another repo's turn — don't clobber this chat's UI.
+                    return@collect
+                }
+                _uiState.update { ui ->
+                    val sameRepo = live.repoKey.isEmpty() || live.repoKey == repoKey
+                    ui.copy(
+                        typing = if (sameRepo) live.typing else ui.typing,
+                        workingStep = if (sameRepo) live.workingStep else ui.workingStep,
+                        approvalPending = if (sameRepo) live.approvalPending else ui.approvalPending,
+                        approving = if (sameRepo) live.approving else ui.approving,
+                        pendingWriteMessageId = if (sameRepo) live.pendingWriteMessageId else ui.pendingWriteMessageId,
+                        liveChange = if (sameRepo) live.liveChange else ui.liveChange,
+                        treeTruncated = if (sameRepo) (live.treeTruncated || ui.treeTruncated) else ui.treeTruncated,
+                        // Prefer live error when the coordinator has one; keep a
+                        // dismissed-null from dismissError (coordinator cleared).
+                        error = if (sameRepo) live.error else ui.error,
+                        canRetry = if (sameRepo) live.canRetry else ui.canRetry,
+                        ciStatus = if (sameRepo) (live.ciStatus ?: ui.ciStatus) else ui.ciStatus,
+                        prState = when {
+                            sameRepo && live.prInfo != null -> PrState.Ready(live.prInfo)
+                            else -> ui.prState
+                        },
+                    )
+                }
+                live.snackbar?.let { snack ->
+                    when (snack) {
+                        is AiTurnSnackbar.Committed -> showSnackbar(R.string.chat_committed_to, snack.branch)
+                        AiTurnSnackbar.Declined -> showSnackbar(R.string.chat_declined)
+                    }
+                    turnCoordinator.consumeSnackbar()
+                }
+            }
+        }
     }
 
     fun setPendingAttachment(attachment: PendingAttachment?) {
@@ -131,8 +168,9 @@ class ChatViewModel @Inject constructor(
         sendInternal(text, attachment, resend = false)
 
     fun retry() {
-        // Re-runs the previous turn without appending a duplicate user bubble.
-        lastUserInput?.let { sendInternal(it, lastAttachment, resend = true) }
+        turnCoordinator.lastUserInput()?.let {
+            sendInternal(it, turnCoordinator.lastAttachment(), resend = true)
+        }
     }
 
     private fun sendInternal(text: String, attachment: ChatAttachment?, resend: Boolean) {
@@ -142,7 +180,6 @@ class ChatViewModel @Inject constructor(
         val state = _uiState.value
         if (state.typing || state.approvalPending || state.approving) return
 
-        // Bubble shown to the user: plain text + a short attachment note (not the full file body).
         val displayText = buildString {
             if (attachment != null) {
                 append("📎 ").append(attachment.displayName)
@@ -151,30 +188,32 @@ class ChatViewModel @Inject constructor(
             append(trimmed)
         }.ifBlank { "📎 ${attachment?.displayName.orEmpty()}" }
 
-        lastUserInput = trimmed.ifEmpty { displayText }
-        lastAttachment = attachment
-        _uiState.update { it.copy(pendingAttachment = null) }
+        val userText = trimmed.ifEmpty { displayText }
+        turnCoordinator.rememberRetry(userText, attachment)
+        _uiState.update { it.copy(pendingAttachment = null, error = null) }
 
         viewModelScope.launch {
             if (!resend) {
                 chatRepository.appendUserText(repoKey, session.sessionId, displayText)
             }
-            // Orchestrator gets the user's typed text; attachment is applied separately.
-            runTurn(trimmed.ifEmpty { displayText }, session, attachment)
+            val request = TurnRequest(
+                repoKey = repoKey,
+                owner = owner,
+                repo = repo,
+                defaultBranch = defaultBranch,
+                workingBranch = session.workingBranch,
+                sessionId = session.sessionId,
+                userText = userText,
+                attachment = attachment,
+            )
+            // Runs in the application-scoped coordinator + FGS — not viewModelScope.
+            turnCoordinator.startTurn(request)
         }
     }
 
-    fun approveChange() {
-        if (!_uiState.value.approvalPending) return
-        _uiState.update { it.copy(approvalPending = false, approving = true) }
-        viewModelScope.launch { approvalFlow.emit(true) }
-    }
+    fun approveChange() = turnCoordinator.approveChange()
 
-    fun rejectChange() {
-        if (!_uiState.value.approvalPending) return
-        _uiState.update { it.copy(approvalPending = false) }
-        viewModelScope.launch { approvalFlow.emit(false) }
-    }
+    fun rejectChange() = turnCoordinator.rejectChange()
 
     fun createPullRequestNow() {
         val session = _uiState.value.session ?: return
@@ -204,7 +243,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun dismissPrDialog() = _uiState.update { it.copy(prState = PrState.None) }
+    fun dismissPrDialog() {
+        turnCoordinator.dismissPrInfo()
+        _uiState.update { it.copy(prState = PrState.None) }
+    }
 
     fun clearConversation() {
         val session = _uiState.value.session ?: return
@@ -213,128 +255,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun dismissError() = _uiState.update { it.copy(error = null) }
+    fun dismissError() {
+        turnCoordinator.dismissError()
+        _uiState.update { it.copy(error = null) }
+    }
 
-    fun consumeTreeTruncated() = _uiState.update { it.copy(treeTruncated = false) }
+    fun consumeTreeTruncated() {
+        turnCoordinator.consumeTreeTruncated()
+        _uiState.update { it.copy(treeTruncated = false) }
+    }
 
     fun onSnackbarShown() = _uiState.update { it.copy(snackbar = SnackbarEvent()) }
 
     private fun showSnackbar(textRes: Int, vararg args: Any) {
         snackbarCounter++
         _uiState.update { it.copy(snackbar = SnackbarEvent(snackbarCounter, textRes, args.toList())) }
-    }
-
-    private fun runTurn(
-        userText: String,
-        session: RepoSession,
-        attachment: ChatAttachment? = null,
-    ) {
-        _uiState.update {
-            it.copy(
-                typing = true,
-                workingStep = "",
-                error = null,
-                canRetry = false,
-                liveChange = null,
-                pendingWriteMessageId = null,
-                treeTruncated = false,
-            )
-        }
-        val request = TurnRequest(
-            repoKey = repoKey,
-            owner = owner,
-            repo = repo,
-            defaultBranch = defaultBranch,
-            workingBranch = session.workingBranch,
-            sessionId = session.sessionId,
-            userText = userText,
-            attachment = attachment,
-        )
-        viewModelScope.launch {
-            turnRunner.runTurn(request, approvalFlow).collect { event ->
-                when (event) {
-                    is TurnEvent.Working ->
-                        _uiState.update { it.copy(workingStep = event.step) }
-
-                    is TurnEvent.TreeReady ->
-                        if (event.truncated) _uiState.update { it.copy(treeTruncated = true) }
-
-                    is TurnEvent.ReadingFile -> Unit // surfaced via the persisted read card
-
-                    is TurnEvent.Reply -> finishTurn()
-
-                    is TurnEvent.ProposeWrite -> _uiState.update {
-                        it.copy(
-                            typing = false,
-                            approvalPending = true,
-                            liveChange = event.change,
-                            pendingWriteMessageId = event.messageId,
-                        )
-                    }
-
-                    is TurnEvent.WriteCommitted -> {
-                        _uiState.update {
-                            it.copy(
-                                approvalPending = false,
-                                approving = false,
-                                liveChange = null,
-                                pendingWriteMessageId = null,
-                            )
-                        }
-                        showSnackbar(R.string.chat_committed_to, event.change.branch)
-                    }
-
-                    is TurnEvent.WriteDeclined -> {
-                        _uiState.update {
-                            it.copy(
-                                approvalPending = false,
-                                approving = false,
-                                liveChange = null,
-                                pendingWriteMessageId = null,
-                            )
-                        }
-                        showSnackbar(R.string.chat_declined)
-                    }
-
-                    is TurnEvent.PullRequestCreated -> {
-                        // Same Ready dialog the manual button uses — one code path.
-                        _uiState.update { it.copy(prState = PrState.Ready(event.info)) }
-                    }
-
-                    is TurnEvent.CiStatus -> {
-                        _uiState.update { it.copy(ciStatus = event.run) }
-                    }
-
-                    is TurnEvent.Error -> {
-                        // If the failure happened while a proposal was waiting,
-                        // the approval gate is gone: mark the pending card as
-                        // declined so it never looks actionable again.
-                        val pendingId = _uiState.value.pendingWriteMessageId
-                        if (pendingId != null) {
-                            viewModelScope.launch {
-                                chatRepository.markWrite(pendingId, MessageStatus.REJECTED, null)
-                            }
-                        }
-                        _uiState.update {
-                            it.copy(
-                                typing = false,
-                                approvalPending = false,
-                                approving = false,
-                                liveChange = null,
-                                pendingWriteMessageId = null,
-                                error = event.error,
-                                canRetry = lastUserInput != null,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun finishTurn() {
-        _uiState.update {
-            it.copy(typing = false, workingStep = "", approvalPending = false, approving = false)
-        }
     }
 }
