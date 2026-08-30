@@ -133,4 +133,9 @@
     <string name="chats_delete_title">Delete conversation?</string>
     <string name="chats_delete_body">This removes the chat history from this device. Repository files and branches are not affected.</string>
     <string name="chats_delete_confirm">Delete</string>
+    <string name="repo_chat_about">Chat about this repo</string>
+    <string name="repo_tree_error_title">Could not load files</string>
+    <string name="repo_tree_empty_title">Empty repository</string>
+    <string name="repo_tree_empty_body">No files found on this branch.</string>
+    <string name="repo_file_binary">Binary file — cannot preview in the app.</string>
 </resources>
