@@ -181,6 +181,52 @@ class AiEditOrchestrator @Inject constructor(
                     }
                     return@flow
                 }
+
+                is AiAction.CreatePullRequest -> {
+                    emit(TurnEvent.Working("Opening pull request"))
+                    val info = github.createPullRequest(
+                        owner = request.owner,
+                        repo = request.repo,
+                        head = branch,
+                        base = request.defaultBranch,
+                        title = action.title,
+                        body = action.body,
+                    )
+                    emit(TurnEvent.PullRequestCreated(info))
+                    val context = "PULL REQUEST CREATED - #${info.number} \"${info.title}\"\n" +
+                        "URL: ${info.htmlUrl}\n" +
+                        "Head: $branch → base: ${request.defaultBranch}\n" +
+                        "Tell the user the PR is ready and share the URL. Merging stays a manual step."
+                    messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
+                }
+
+                is AiAction.CheckCiStatus -> {
+                    val targetBranch = action.branchOverride
+                        ?.takeIf { it.isNotBlank() }
+                        ?: branch
+                    emit(TurnEvent.Working("Checking CI on $targetBranch"))
+                    val runs = github.listWorkflowRuns(
+                        owner = request.owner,
+                        repo = request.repo,
+                        branch = targetBranch,
+                    )
+                    val latest = runs.firstOrNull()
+                    emit(TurnEvent.CiStatus(latest))
+                    val context = if (latest == null) {
+                        "CI STATUS - no GitHub Actions runs found for branch `$targetBranch`. " +
+                            "Tell the user there is no CI history yet for this branch."
+                    } else {
+                        buildString {
+                            append("CI STATUS - branch `$targetBranch`:\n")
+                            append("- Workflow: ${latest.name.ifBlank { "(unnamed)" }}\n")
+                            append("- Status: ${latest.status}\n")
+                            append("- Conclusion: ${latest.conclusion ?: "(still running)"}\n")
+                            latest.htmlUrl?.let { append("- URL: $it\n") }
+                            append("Summarize this for the user in plain language (one check is enough).")
+                        }
+                    }
+                    messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
+                }
             }
         }
 

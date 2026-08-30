@@ -85,4 +85,5 @@
     <string name="chat_suggest_readme">Improve the README</string>
     <string name="chat_additions_removals">+%1$d −%2$d</string>
     <string name="chat_error_unauthorized_action">Open Settings</string>
+    <string name="chat_ci_status">CI status</string>
 </resources>

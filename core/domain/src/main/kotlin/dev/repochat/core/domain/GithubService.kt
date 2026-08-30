@@ -5,6 +5,7 @@ import dev.repochat.core.model.GitFile
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSummary
+import dev.repochat.core.model.WorkflowRunInfo
 
 /**
  * Everything the app needs from the GitHub REST API (v3, api.github.com).
@@ -47,4 +48,15 @@ interface GithubService {
         title: String,
         body: String,
     ): PullRequestInfo
+
+    /**
+     * Recent GitHub Actions workflow runs for [branch], most recent first.
+     * Empty list when the repo has no Actions history for that branch.
+     */
+    suspend fun listWorkflowRuns(
+        owner: String,
+        repo: String,
+        branch: String,
+        perPage: Int = 5,
+    ): List<WorkflowRunInfo>
 }

@@ -16,6 +16,7 @@ import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSummary
 import dev.repochat.core.model.TreeEntry
+import dev.repochat.core.model.WorkflowRunInfo
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -134,6 +135,27 @@ class GithubRepositoryImpl @Inject constructor(
             )
         }
         return PullRequestInfo(number = dto.number ?: 0L, htmlUrl = dto.htmlUrl, title = dto.title)
+    }
+
+    override suspend fun listWorkflowRuns(
+        owner: String,
+        repo: String,
+        branch: String,
+        perPage: Int,
+    ): List<WorkflowRunInfo> {
+        val dto = mapHttpErrors(AppError.Provider.GITHUB) {
+            api.listWorkflowRuns(owner = owner, repo = repo, branch = branch, perPage = perPage)
+        }
+        return dto.runs.map { run ->
+            WorkflowRunInfo(
+                id = run.id,
+                name = run.name.orEmpty(),
+                status = run.status.orEmpty().ifBlank { "unknown" },
+                conclusion = run.conclusion,
+                htmlUrl = run.htmlUrl,
+                updatedAtMillis = run.updatedAt?.let(::parseIso8601),
+            )
+        }
     }
 
     /* ---------------------------- helpers ---------------------------- */

@@ -102,4 +102,19 @@ class ErrorMappingTest {
         assertTrue("Expected non-blank, got '${error.userMessage}'", error.userMessage.isNotBlank())
         assertEquals("HTTP 500", error.userMessage)
     }
+
+    @Test
+    fun `github 422 nested errors message is preferred over Validation Failed`() {
+        val body = """
+            {
+              "message": "Validation Failed",
+              "errors": [
+                {"resource":"PullRequest","code":"custom","message":"No commits between main and ai-chat/pv15q171"}
+              ]
+            }
+        """.trimIndent()
+        val error = toAppError(AppError.Provider.GITHUB, httpExceptionBlankReason(422, body))
+        assertTrue(error is AppError.Api)
+        assertEquals("No commits between main and ai-chat/pv15q171", error.userMessage)
+    }
 }
