@@ -218,6 +218,7 @@ class GithubRepositoryImpl @Inject constructor(
         updatedAtMillis = updatedAt?.let(::parseIso8601),
         defaultBranch = defaultBranch.ifBlank { "main" },
         htmlUrl = htmlUrl,
+        stargazersCount = stargazersCount,
     )
 
     private fun GithubFileContentDto.toGitFile(path: String): GitFile {

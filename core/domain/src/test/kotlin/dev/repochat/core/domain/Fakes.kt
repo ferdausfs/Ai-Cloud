@@ -68,6 +68,7 @@ class FakeGithubService : GithubService {
                 updatedAtMillis = 0L,
                 defaultBranch = "main",
                 htmlUrl = "",
+                stargazersCount = 0,
             ),
         )
 
@@ -163,28 +164,82 @@ class FakeChatRepository(
     private val sessionState: MutableStateFlow<RepoSession?> = MutableStateFlow(null),
 ) : ChatRepository {
     val stored = mutableListOf<ChatMessage>()
+    val allSessions = mutableListOf<RepoSession>()
     var nextId = 1L
 
-    override fun session(repoKey: String): Flow<RepoSession?> = sessionState
+    override fun session(repoKey: String): Flow<RepoSession?> = sessionState.map { s ->
+        s?.takeIf { it.repoKey == repoKey } ?: allSessions.firstOrNull { it.repoKey == repoKey }
+    }
+
+    override suspend fun getSession(repoKey: String): RepoSession? =
+        allSessions.firstOrNull { it.repoKey == repoKey }
+            ?: sessionState.value?.takeIf { it.repoKey == repoKey }
+
+    override fun conversations(): Flow<List<dev.repochat.core.model.ConversationSummary>> =
+        sessionState.map {
+            allSessions.map { s ->
+                val last = stored.filter { it.repoKey == s.repoKey }.maxByOrNull { it.createdAt }
+                dev.repochat.core.model.ConversationSummary(
+                    session = s,
+                    lastMessagePreview = last?.text,
+                    lastMessageAt = last?.createdAt ?: s.updatedAt,
+                )
+            }.sortedByDescending { it.lastMessageAt }
+        }
 
     override suspend fun ensureSession(owner: String, repo: String, defaultBranch: String): RepoSession {
+        val key = "$owner/$repo"
+        allSessions.firstOrNull { it.repoKey == key }?.let {
+            sessionState.value = it
+            return it
+        }
         val session = RepoSession(
-            repoKey = "$owner/$repo", owner = owner, repo = repo, defaultBranch = defaultBranch,
+            repoKey = key, owner = owner, repo = repo, defaultBranch = defaultBranch,
             sessionId = "testsess1", workingBranch = null,
+            mode = dev.repochat.core.model.ChatMode.REPO,
+            updatedAt = System.currentTimeMillis(),
         )
+        allSessions += session
+        sessionState.value = session
+        return session
+    }
+
+    override suspend fun createGeneralSession(): RepoSession {
+        val id = "gen${nextId++}"
+        val session = RepoSession(
+            repoKey = "general/$id",
+            owner = "",
+            repo = "",
+            defaultBranch = "",
+            sessionId = id,
+            workingBranch = null,
+            mode = dev.repochat.core.model.ChatMode.GENERAL,
+            updatedAt = System.currentTimeMillis(),
+        )
+        allSessions += session
         sessionState.value = session
         return session
     }
 
     override suspend fun updateWorkingBranch(repoKey: String, branch: String) {
-        sessionState.value = sessionState.value?.copy(workingBranch = branch)
+        val idx = allSessions.indexOfFirst { it.repoKey == repoKey }
+        if (idx >= 0) {
+            allSessions[idx] = allSessions[idx].copy(workingBranch = branch)
+            sessionState.value = allSessions[idx]
+        }
+    }
+
+    override suspend fun deleteConversation(repoKey: String) {
+        allSessions.removeAll { it.repoKey == repoKey }
+        stored.removeAll { it.repoKey == repoKey }
+        if (sessionState.value?.repoKey == repoKey) sessionState.value = null
     }
 
     override fun messages(repoKey: String, sessionId: String): Flow<List<ChatMessage>> =
-        sessionState.map { stored.filter { it.sessionId == sessionId } }
+        sessionState.map { stored.filter { it.repoKey == repoKey && it.sessionId == sessionId } }
 
     override suspend fun recentMessages(repoKey: String, sessionId: String, limit: Int): List<ChatMessage> =
-        stored.filter { it.sessionId == sessionId }.takeLast(limit)
+        stored.filter { it.repoKey == repoKey && it.sessionId == sessionId }.takeLast(limit)
 
     override suspend fun appendUserText(repoKey: String, sessionId: String, text: String): Long =
         append(ChatMessage(nextId++, repoKey, sessionId, ChatRole.USER, MessageKind.TEXT, text, null, null, null, null, MessageStatus.NONE, System.currentTimeMillis()))
@@ -206,7 +261,7 @@ class FakeChatRepository(
     }
 
     override suspend fun clearMessages(repoKey: String, sessionId: String) {
-        stored.removeAll { it.sessionId == sessionId }
+        stored.removeAll { it.repoKey == repoKey && it.sessionId == sessionId }
     }
 
     private fun append(message: ChatMessage): Long {
