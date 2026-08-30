@@ -31,7 +31,13 @@ internal suspend fun <T> mapHttpErrors(
 internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError {
     val code = e.code()
     val apiMessage = try {
-        errorJson.decodeFromString(GithubErrorDto.serializer(), e.response()?.errorBody()?.string().orEmpty()).message
+        val body = e.response()?.errorBody()?.string().orEmpty()
+        when (provider) {
+            AppError.Provider.GITHUB ->
+                errorJson.decodeFromString(GithubErrorDto.serializer(), body).message
+            AppError.Provider.OLLAMA ->
+                errorJson.decodeFromString(OllamaErrorDto.serializer(), body).error
+        }
     } catch (_: Exception) {
         null
     }

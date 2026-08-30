@@ -70,6 +70,22 @@ class ErrorMappingTest {
     }
 
     @Test
+    fun `ollama error body is surfaced for 404 model not found`() {
+        val error = toAppError(
+            AppError.Provider.OLLAMA,
+            httpExceptionBlankReason(
+                404,
+                """{"error":"model 'gpt-oss:120b-cloud' not found, try pulling it first"}""",
+            ),
+        )
+        assertTrue(error is AppError.NotFound)
+        assertEquals(
+            "model 'gpt-oss:120b-cloud' not found, try pulling it first",
+            error.userMessage,
+        )
+    }
+
+    @Test
     fun `blank HTTP reason phrase falls back to HTTP code`() {
         val error = toAppError(AppError.Provider.OLLAMA, httpExceptionBlankReason(502))
         assertTrue(error is AppError.Api)
