@@ -21,3 +21,11 @@ data class ChatRoute(
     /** Stored session key — required to reopen a general chat. */
     val repoKey: String = "",
 )
+
+@Serializable
+data class RepoDetailRoute(
+    val owner: String,
+    val repo: String,
+    val defaultBranch: String,
+)
+

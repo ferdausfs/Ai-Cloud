@@ -15,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import dev.repochat.ui.chat.ChatScreen
 import dev.repochat.ui.chats.ChatsHomeScreen
+import dev.repochat.ui.repos.RepoDetailScreen
 import dev.repochat.ui.repopicker.RepoPickerScreen
 import dev.repochat.ui.settings.SettingsScreen
 
@@ -95,12 +96,10 @@ fun AppNavHost(
                 },
                 onRepoSelected = { repo ->
                     navController.navigate(
-                        ChatRoute(
+                        RepoDetailRoute(
                             owner = repo.owner,
                             repo = repo.name,
                             defaultBranch = repo.defaultBranch,
-                            mode = "REPO",
-                            repoKey = repo.fullName,
                         ),
                     ) {
                         launchSingleTop = true
@@ -109,6 +108,30 @@ fun AppNavHost(
             )
         }
 
+
+
+        composable<RepoDetailRoute> { entry ->
+            val route = entry.toRoute<RepoDetailRoute>()
+            RepoDetailScreen(
+                owner = route.owner,
+                repo = route.repo,
+                defaultBranch = route.defaultBranch,
+                onBack = { navController.popBackStack() },
+                onChatAboutRepo = {
+                    navController.navigate(
+                        ChatRoute(
+                            owner = route.owner,
+                            repo = route.repo,
+                            defaultBranch = route.defaultBranch,
+                            mode = "REPO",
+                            repoKey = "${route.owner}/${route.repo}",
+                        ),
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
 
         composable<ChatsRoute> {
             ChatsHomeScreen(
