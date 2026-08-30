@@ -84,6 +84,7 @@ fun SettingsScreen(
     onBrowseRepos: () -> Unit,
     onResumeRepo: (owner: String, repo: String, defaultBranch: String) -> Unit,
     onOpenGeneralChat: () -> Unit = {},
+    onOpenChats: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -224,6 +225,24 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(12.dp))
+
+            Button(
+                onClick = onOpenChats,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.chats_title), style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+
+            Spacer(Modifier.height(10.dp))
 
             Button(
                 onClick = onOpenGeneralChat,
