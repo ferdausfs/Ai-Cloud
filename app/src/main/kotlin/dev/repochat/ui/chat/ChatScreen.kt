@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -15,6 +16,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -148,8 +151,6 @@ fun ChatScreen(
         viewModel.start(owner, repo, defaultBranch)
     }
 
-    // Resolved during composition so the effects/lambdas below never call
-    // @Composable stringResource() from a non-composable context.
     val snackbarText = state.snackbar
         .takeIf { it.id != 0L }
         ?.let { stringResource(it.textRes, *it.args.toTypedArray()) }
@@ -180,22 +181,16 @@ fun ChatScreen(
     val attachFailedText = stringResource(R.string.chat_attach_failed)
     val attachTooLargeText = stringResource(R.string.chat_attach_too_large)
 
-    // OpenDocument accepts images + text/code so users can attach screenshots
-    // or source files without switching pickers. "*/*" is intentionally broad
-    // — content is classified by MIME / extension after the pick.
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         try {
-            // Persist read access across process death for the pending chip.
             context.contentResolver.takePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
-        } catch (_: SecurityException) {
-            // Some providers don't support persistable grants — still readable now.
-        }
+        } catch (_: SecurityException) {}
         val meta = readAttachmentMeta(context, uri)
         viewModel.setPendingAttachment(meta)
     }
@@ -254,9 +249,7 @@ fun ChatScreen(
                                             context.startActivity(
                                                 Intent(Intent.ACTION_VIEW, Uri.parse(url)),
                                             )
-                                        } catch (_: Exception) {
-                                            // No browser — ignore.
-                                        }
+                                        } catch (_: Exception) {}
                                     }
                                 },
                             )
@@ -323,13 +316,12 @@ fun ChatScreen(
                 ),
             )
         },
-    ) { padding ->
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            // Error banner with retry / settings shortcut.
             AnimatedVisibility(
                 visible = state.error != null,
                 enter = expandVertically() + fadeIn(),
@@ -439,8 +431,6 @@ fun ChatScreen(
         }
     }
 
-    // ---------- dialogs ----------
-
     if (showBranchInfo && session != null) {
         AlertDialog(
             onDismissRequest = { showBranchInfo = false },
@@ -495,9 +485,7 @@ fun ChatScreen(
             onOpen = {
                 try {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pr.info.htmlUrl)))
-                } catch (_: Exception) {
-                    // No browser available — the copy action still works.
-                }
+                } catch (_: Exception) {}
             },
             onCopy = {
                 clipboardManager.setText(AnnotatedString(pr.info.htmlUrl))
@@ -596,11 +584,12 @@ private fun SuggestionChip(icon: androidx.compose.ui.graphics.vector.ImageVector
 private fun ciChipColors(
     conclusion: String?,
     status: String,
-): Triple<
+): Triple< 
     androidx.compose.ui.graphics.vector.ImageVector,
     androidx.compose.ui.graphics.Color,
     androidx.compose.ui.graphics.Color,
-    > {
+    >
+{
     val scheme = MaterialTheme.colorScheme
     return when {
         status == "queued" -> Triple(
@@ -702,103 +691,116 @@ private fun BottomBar(
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            if (approvalPending || approving) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        onClick = onReject,
-                        enabled = !approving,
-                        modifier = Modifier
-                            .weight(0.4f)
-                            .bounce { if (!approving) onReject() },
-                    ) {
-                        Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.chat_reject))
-                    }
-                    Button(
-                        onClick = onApprove,
-                        enabled = !approving,
-                        modifier = Modifier
-                            .weight(0.6f)
-                            .bounce { if (!approving) onApprove() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary,
-                            contentColor = MaterialTheme.colorScheme.onSecondary,
-                        ),
-                    ) {
-                        if (approving) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            if (approving) stringResource(R.string.chat_committing)
-                            else stringResource(R.string.chat_approve)
-                        )
-                    }
-                }
-            } else {
-                AnimatedVisibility(
-                    visible = pendingAttachment != null,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    pendingAttachment?.let { attachment ->
-                        AttachmentChip(
-                            attachment = attachment,
-                            onRemove = onRemoveAttachment,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onAttach,
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AttachFile,
-                            contentDescription = stringResource(R.string.chat_attach),
-                            tint = if (pendingAttachment != null) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = onInputChange,
-                        placeholder = { Text(stringResource(R.string.chat_input_hint)) },
-                        modifier = Modifier.weight(1f),
-                        shape = MaterialTheme.shapes.extraLarge,
-                        maxLines = 4,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(
-                                color = if (canSend) {
-                                    MaterialTheme.colorScheme.primary
+            AnimatedContent(
+                targetState = (approvalPending || approving),
+                transitionSpec = { 
+                    fadeIn() + expandVertically() togetherWith fadeOut() + shrinkVertically() 
+                },
+                label = "bottom_bar_mode"
+            ) {
+                isApprovalMode -> {
+                    if (isApprovalMode) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = onReject,
+                                enabled = !approving,
+                                modifier = Modifier
+                                    .weight(0.4f)
+                                    .bounce { if (!approving) onReject() },
+                            ) {
+                                Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(stringResource(R.string.chat_reject))
+                            }
+                            Button(
+                                onClick = onApprove,
+                                enabled = !approving,
+                                modifier = Modifier
+                                    .weight(0.6f)
+                                    .bounce { if (!approving) onApprove() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary,
+                                    contentColor = MaterialTheme.colorScheme.onSecondary,
+                                ),
+                            ) {
+                                if (approving) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                },
-                                shape = CircleShape,
-                            )
-                            .bounce { if (canSend) onSend() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = stringResource(R.string.chat_send),
-                            tint = if (canSend) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
+                                    Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (approving) stringResource(R.string.chat_committing)
+                                    else stringResource(R.string.chat_approve)
+                                )
+                            }
+                        }
+                    } else {
+                        Column {
+                            AnimatedVisibility(
+                                visible = pendingAttachment != null,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut(),
+                            ) {
+                                pendingAttachment?.let {
+                                    AttachmentChip(
+                                        attachment = it,
+                                        onRemove = onRemoveAttachment,
+                                        modifier = Modifier.padding(bottom = 8.dp),
+                                    )
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = onAttach,
+                                    modifier = Modifier.size(44.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AttachFile,
+                                        contentDescription = stringResource(R.string.chat_attach),
+                                        tint = if (pendingAttachment != null) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                }
+                                OutlinedTextField(
+                                    value = input,
+                                    onValueChange = onInputChange,
+                                    placeholder = { Text(stringResource(R.string.chat_input_hint)) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = MaterialTheme.shapes.extraLarge,
+                                    maxLines = 4,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(
+                                            color = if (canSend) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                            shape = CircleShape,
+                                        )
+                                        .bounce { if (canSend) onSend() },
+                                    contentAlignment = Alignment.Center,
+                                )
+                                {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                                        contentDescription = stringResource(R.string.chat_send),
+                                        tint = if (canSend) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -940,7 +942,6 @@ private fun loadAttachment(
 ): AttachmentLoad {
     val uri = Uri.parse(pending.uriString)
     return try {
-        // Guard on declared size when available.
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
             if (cursor.moveToFirst() && sizeIdx >= 0 && !cursor.isNull(sizeIdx)) {
@@ -971,7 +972,6 @@ private fun loadAttachment(
                 ),
             )
         } else {
-            // Unknown binary — surface a short note rather than dumping garbage.
             AttachmentLoad.Ok(
                 ChatAttachment(
                     displayName = pending.displayName,
@@ -1003,7 +1003,6 @@ private fun looksLikeText(name: String, mime: String?, bytes: ByteArray): Boolea
     }
     val ext = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
     if (ext in TEXT_EXTENSIONS) return true
-    // Heuristic: mostly printable / whitespace and no NULs in the first 2 KB.
     val sample = bytes.take(2_048)
     if (sample.any { it == 0.toByte() }) return false
     val nonText = sample.count { b ->
