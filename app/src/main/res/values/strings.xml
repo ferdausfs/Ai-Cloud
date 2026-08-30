@@ -23,6 +23,31 @@
     <string name="settings_show">Show</string>
     <string name="settings_hide">Hide</string>
 
+    <!-- Bottom tabs -->
+    <string name="tab_chats">Chats</string>
+    <string name="tab_repos">Repos</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Chats home -->
+    <string name="chats_new">New chat</string>
+    <string name="chats_new_title">Start a conversation</string>
+    <string name="chats_new_general">General chat</string>
+    <string name="chats_new_general_body">Ask anything — coding help, explanations, brainstorming. No repository tools.</string>
+    <string name="chats_new_repo">Chat with a repo</string>
+    <string name="chats_new_repo_body">Pick a GitHub repository. The AI can read files, propose commits, and open PRs.</string>
+    <string name="chats_empty_title">No conversations yet</string>
+    <string name="chats_empty_body">Tap + to start a general chat or open a repository conversation.</string>
+    <string name="chats_delete_title">Delete conversation?</string>
+    <string name="chats_delete_body">This removes the chat history from this device. Repository files and branches are not affected.</string>
+    <string name="chats_delete_confirm">Delete</string>
+
+    <!-- Repo detail / tree -->
+    <string name="repo_chat_about">Chat about this repo</string>
+    <string name="repo_tree_error_title">Couldn\'t load files</string>
+    <string name="repo_tree_empty_title">Empty repository</string>
+    <string name="repo_tree_empty_body">This branch has no files yet.</string>
+    <string name="repo_file_binary">Binary file — open it on GitHub to view.</string>
+
     <!-- Repo picker -->
     <string name="repos_title">Select repository</string>
     <string name="repos_search_hint">Search repositories</string>
@@ -38,9 +63,16 @@
     <string name="repos_updated">Updated %1$s</string>
 
     <!-- Chat -->
+    <string name="chat_general_title">General chat</string>
     <string name="chat_empty_title">Your AI pair programmer</string>
     <string name="chat_empty_body">Ask me to add a feature, fix a bug, or explain this codebase. I\'ll read the files I need and propose edits — you approve every commit.</string>
+    <string name="chat_empty_title_general">How can I help?</string>
+    <string name="chat_empty_body_general">Ask coding questions, brainstorm designs, or paste a snippet. This chat isn\'t attached to a repository — switch to Repos when you want file edits and PRs.</string>
     <string name="chat_input_hint">Ask me to edit this repo…</string>
+    <string name="chat_input_hint_general">Message RepoChat…</string>
+    <string name="chat_suggest_general_explain">Explain a concept</string>
+    <string name="chat_suggest_general_code">Write a code snippet</string>
+    <string name="chat_suggest_general_debug">Help me debug</string>
     <string name="chat_input_approval_hint">Approve or reject the proposed change…</string>
     <string name="chat_send">Send message</string>
     <string name="chat_attach">Attach file</string>
@@ -77,6 +109,8 @@
     <string name="chat_copied">Link copied</string>
     <string name="chat_clear_confirm_title">Clear conversation?</string>
     <string name="chat_clear_confirm_body">The message history for this repository will be deleted. Files already committed to the working branch are not affected.</string>
+    <string name="chat_clear_confirm_body_general">The messages in this conversation will be deleted.</string>
+    <string name="turn_notification_title_general">RepoChat is thinking</string>
     <string name="chat_clear_confirm_yes">Clear</string>
     <string name="chat_cancel">Cancel</string>
     <string name="chat_suggest_fix">Fix a bug</string>

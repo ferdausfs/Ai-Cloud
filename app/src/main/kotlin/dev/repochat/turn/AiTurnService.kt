@@ -42,6 +42,8 @@ class AiTurnService : Service() {
     private var owner: String = ""
     private var repo: String = ""
     private var defaultBranch: String = ""
+    private var mode: String = "REPO"
+    private var repoKey: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,10 +51,12 @@ class AiTurnService : Service() {
         owner = intent?.getStringExtra(EXTRA_OWNER).orEmpty()
         repo = intent?.getStringExtra(EXTRA_REPO).orEmpty()
         defaultBranch = intent?.getStringExtra(EXTRA_DEFAULT_BRANCH).orEmpty()
+        mode = intent?.getStringExtra(EXTRA_MODE).orEmpty().ifBlank { "REPO" }
+        repoKey = intent?.getStringExtra(EXTRA_REPO_KEY).orEmpty()
 
         ensureChannel()
         val notification = buildNotification(
-            title = getString(R.string.turn_notification_title, repo.ifBlank { "repo" }),
+            title = notificationTitle(repo),
             text = getString(R.string.turn_step_starting),
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -80,10 +84,7 @@ class AiTurnService : Service() {
                 nm.notify(
                     NOTIFICATION_ID,
                     buildNotification(
-                        title = getString(
-                            R.string.turn_notification_title,
-                            state.repo.ifBlank { repo }.ifBlank { "repo" },
-                        ),
+                        title = notificationTitle(state.repo.ifBlank { repo }),
                         text = step,
                     ),
                 )
@@ -136,6 +137,14 @@ class AiTurnService : Service() {
         )
     }
 
+    private fun notificationTitle(repoName: String): String {
+        return if (mode.equals("GENERAL", ignoreCase = true) || repoName.isBlank()) {
+            getString(R.string.turn_notification_title_general)
+        } else {
+            getString(R.string.turn_notification_title, repoName)
+        }
+    }
+
     private fun buildNotification(title: String, text: String): Notification {
         val open = Intent(this, MainActivity::class.java).apply {
             action = MainActivity.ACTION_OPEN_CHAT
@@ -144,6 +153,10 @@ class AiTurnService : Service() {
             putExtra(MainActivity.EXTRA_OWNER, owner)
             putExtra(MainActivity.EXTRA_REPO, repo)
             putExtra(MainActivity.EXTRA_DEFAULT_BRANCH, defaultBranch)
+            putExtra(MainActivity.EXTRA_MODE, mode)
+            putExtra(MainActivity.EXTRA_REPO_KEY, repoKey.ifBlank {
+                if (owner.isNotBlank() && repo.isNotBlank()) "$owner/$repo" else ""
+            })
         }
         val pending = PendingIntent.getActivity(
             this,
@@ -170,12 +183,23 @@ class AiTurnService : Service() {
         private const val EXTRA_OWNER = "owner"
         private const val EXTRA_REPO = "repo"
         private const val EXTRA_DEFAULT_BRANCH = "default_branch"
+        private const val EXTRA_MODE = "mode"
+        private const val EXTRA_REPO_KEY = "repo_key"
 
-        fun start(context: Context, owner: String, repo: String, defaultBranch: String) {
+        fun start(
+            context: Context,
+            owner: String,
+            repo: String,
+            defaultBranch: String,
+            mode: String = "REPO",
+            repoKey: String = "",
+        ) {
             val intent = Intent(context, AiTurnService::class.java).apply {
                 putExtra(EXTRA_OWNER, owner)
                 putExtra(EXTRA_REPO, repo)
                 putExtra(EXTRA_DEFAULT_BRANCH, defaultBranch)
+                putExtra(EXTRA_MODE, mode)
+                putExtra(EXTRA_REPO_KEY, repoKey)
             }
             ContextCompat.startForegroundService(context, intent)
         }
