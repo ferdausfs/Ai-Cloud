@@ -17,7 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import dev.repochat.navigation.AppNavHost
 import dev.repochat.navigation.ChatRoute
-import dev.repochat.navigation.SettingsRoute
+import dev.repochat.navigation.HomeRoute
 import dev.repochat.ui.theme.RepoChatTheme
 
 @AndroidEntryPoint
@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(deepLink) {
                         val route = deepLink ?: return@LaunchedEffect
                         navController.navigate(route) {
-                            popUpTo(SettingsRoute) { inclusive = false }
+                            popUpTo(HomeRoute) { inclusive = false }
                             launchSingleTop = true
                         }
                         pendingChatRoute = null

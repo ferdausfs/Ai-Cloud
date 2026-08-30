@@ -85,6 +85,8 @@ fun SettingsScreen(
     onResumeRepo: (owner: String, repo: String, defaultBranch: String) -> Unit,
     onOpenGeneralChat: () -> Unit = {},
     onOpenChats: () -> Unit = {},
+    /** Hide legacy browse CTA when Settings lives under tabs. */
+    embeddedInTabs: Boolean = false,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -226,6 +228,7 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(12.dp))
 
+            if (!embeddedInTabs) {
             Button(
                 onClick = onOpenChats,
                 modifier = Modifier
@@ -276,6 +279,7 @@ fun SettingsScreen(
                 Text(stringResource(R.string.settings_continue), style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.width(6.dp))
                 Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
             }
 
             // Resume card
