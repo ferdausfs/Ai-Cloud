@@ -128,6 +128,7 @@ class ChatViewModel @Inject constructor(
                 }
                 _uiState.update { ui ->
                     val sameRepo = live.repoKey.isEmpty() || live.repoKey == repoKey
+                    val prInfo = live.prInfo
                     ui.copy(
                         typing = if (sameRepo) live.typing else ui.typing,
                         workingStep = if (sameRepo) live.workingStep else ui.workingStep,
@@ -141,10 +142,7 @@ class ChatViewModel @Inject constructor(
                         error = if (sameRepo) live.error else ui.error,
                         canRetry = if (sameRepo) live.canRetry else ui.canRetry,
                         ciStatus = if (sameRepo) (live.ciStatus ?: ui.ciStatus) else ui.ciStatus,
-                        prState = when {
-                            sameRepo && live.prInfo != null -> PrState.Ready(live.prInfo)
-                            else -> ui.prState
-                        },
+                        prState = if (sameRepo && prInfo != null) PrState.Ready(prInfo) else ui.prState,
                     )
                 }
                 live.snackbar?.let { snack ->
