@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: ["arena/01a04eb6-ai-cloud"]
+    branches: ["ai-chat/**"]
   pull_request:
   workflow_dispatch:
 
@@ -35,13 +35,11 @@ jobs:
           if-no-files-found: error
 
   # Auto-merge: once the working branch is GREEN (build + tests pass),
-  # merge it into main automatically — no manual push is needed. Pushing
-  # to main does NOT re-trigger this workflow (the push filter above only
-  # includes the working branch), so there is no loop.
+  # merge it into main automatically — no manual push is needed.
   merge-to-main:
     name: Auto-merge into main when green
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a04eb6-ai-cloud'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/ai-chat/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
