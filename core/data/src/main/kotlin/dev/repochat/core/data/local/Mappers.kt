@@ -2,6 +2,7 @@ package dev.repochat.core.data.local
 
 import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.ChatMessage
+import dev.repochat.core.model.ChatMode
 import dev.repochat.core.model.ChatRole
 import dev.repochat.core.model.MessageKind
 import dev.repochat.core.model.MessageStatus
@@ -14,7 +15,17 @@ internal fun RepoSessionEntity.toModel(): RepoSession = RepoSession(
     defaultBranch = defaultBranch,
     sessionId = sessionId,
     workingBranch = workingBranch,
+    mode = modeFrom(mode),
+    title = title,
+    updatedAt = updatedAt,
 )
+
+private fun modeFrom(value: String): ChatMode =
+    try {
+        ChatMode.valueOf(value)
+    } catch (_: IllegalArgumentException) {
+        ChatMode.REPO
+    }
 
 internal fun ActiveRepoEntity.toModel(): ActiveRepo = ActiveRepo(
     repoKey = repoKey,

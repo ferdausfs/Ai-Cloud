@@ -242,4 +242,57 @@ class AiEditOrchestratorTest {
         assertTrue(events.any { it is TurnEvent.Reply && it.text.contains("green") })
         assertTrue(ollama.lastMessages.any { it.content.contains("CI STATUS") })
     }
+
+    @Test
+    fun `general mode is plain chat without tools or branch`() = runTest {
+        val ollama = FakeOllamaService(ArrayDeque(listOf("Sure — use a sealed class for the states.")))
+        val github = FakeGithubService()
+        val chat = FakeChatRepository()
+        val session = chat.createGeneralSession()
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+
+        val req = TurnRequest(
+            repoKey = session.repoKey,
+            owner = "",
+            repo = "",
+            defaultBranch = "",
+            workingBranch = null,
+            sessionId = session.sessionId,
+            userText = "How do I model UI state in Compose?",
+            mode = dev.repochat.core.model.ChatMode.GENERAL,
+        )
+        val events = orchestrator.runTurn(req, MutableSharedFlow()).toList()
+
+        val reply = events.filterIsInstance<TurnEvent.Reply>().single()
+        assertEquals("Sure — use a sealed class for the states.", reply.text)
+        assertNull(github.createdBranch)
+        assertNull(github.committed)
+        assertTrue(ollama.lastMessages.first().content.contains("not attached to a repository"))
+        assertTrue(ollama.lastMessages.none { it.content.contains("STRICT JSON ONLY") })
+        assertEquals(1, chat.stored.count { it.role == dev.repochat.core.model.ChatRole.AI })
+    }
+
+    @Test
+    fun `general mode unwraps JSON reply if model still uses tool schema`() = runTest {
+        val ollama = FakeOllamaService(
+            ArrayDeque(listOf("""{"action":"reply","message":"plain answer"}""")),
+        )
+        val chat = FakeChatRepository()
+        val session = chat.createGeneralSession()
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), chat, FakeSettingsRepository(),
+        )
+        val req = TurnRequest(
+            repoKey = session.repoKey,
+            owner = "",
+            repo = "",
+            defaultBranch = "",
+            workingBranch = null,
+            sessionId = session.sessionId,
+            userText = "hi",
+            mode = dev.repochat.core.model.ChatMode.GENERAL,
+        )
+        val events = orchestrator.runTurn(req, MutableSharedFlow()).toList()
+        assertTrue(events.any { it == TurnEvent.Reply("plain answer") })
+    }
 }

@@ -10,15 +10,21 @@ interface ChatMessageDao {
 
     @Query(
         "SELECT * FROM chat_messages WHERE repo_key = :repoKey AND session_id = :sessionId " +
-            "ORDER BY created_at ASC, id ASC"
+            "ORDER BY created_at ASC, id ASC",
     )
     fun observe(repoKey: String, sessionId: String): Flow<List<ChatMessageEntity>>
 
     @Query(
         "SELECT * FROM chat_messages WHERE repo_key = :repoKey AND session_id = :sessionId " +
-            "ORDER BY created_at DESC, id DESC LIMIT :limit"
+            "ORDER BY created_at DESC, id DESC LIMIT :limit",
     )
     suspend fun recent(repoKey: String, sessionId: String, limit: Int): List<ChatMessageEntity>
+
+    @Query(
+        "SELECT * FROM chat_messages WHERE repo_key = :repoKey " +
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    suspend fun latestForRepo(repoKey: String): ChatMessageEntity?
 
     @Insert
     suspend fun insert(message: ChatMessageEntity): Long
@@ -28,4 +34,7 @@ interface ChatMessageDao {
 
     @Query("DELETE FROM chat_messages WHERE repo_key = :repoKey AND session_id = :sessionId")
     suspend fun clear(repoKey: String, sessionId: String)
+
+    @Query("DELETE FROM chat_messages WHERE repo_key = :repoKey")
+    suspend fun clearAllForRepo(repoKey: String)
 }

@@ -18,6 +18,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -47,6 +48,11 @@ class AiEditOrchestrator @Inject constructor(
             throw AppError.Configuration(
                 "No model configured yet. Add a model name (e.g. gpt-oss:120b-cloud) in Settings."
             )
+        }
+
+        if (request.isGeneral) {
+            runGeneralTurn(request, model)
+            return@flow
         }
 
         emit(TurnEvent.Working("Checking working branch"))
@@ -243,6 +249,81 @@ class AiEditOrchestrator @Inject constructor(
             )
         }
         emit(TurnEvent.Error(appError))
+    }
+
+    /**
+     * Plain conversational turn — no GitHub tools, no JSON action schema.
+     * History + user message → Ollama → free-form markdown reply.
+     */
+    private suspend fun FlowCollector<TurnEvent>.runGeneralTurn(
+        request: TurnRequest,
+        model: String,
+    ) {
+        emit(TurnEvent.Working("Thinking"))
+        val history = chat.recentMessages(request.repoKey, request.sessionId, limit = 16)
+            .filter { it.kind == MessageKind.TEXT && !it.text.isNullOrBlank() }
+            .dropLast(1)
+            .map {
+                OllamaMessage(
+                    role = if (it.role == ChatRole.USER) OllamaRole.USER else OllamaRole.ASSISTANT,
+                    content = it.text.orEmpty(),
+                )
+            }
+
+        val visionSupported = PromptBuilder.modelSupportsVision(model)
+        val attachment = request.attachment
+        val attachedText = attachment?.textContent
+        val attachedImageB64 = attachment?.imageBase64
+        val userContent = buildString {
+            when {
+                attachment == null -> Unit
+                !attachedText.isNullOrEmpty() -> {
+                    append(PromptBuilder.attachedFileMessage(attachment.displayName, attachedText))
+                    append("\n\n")
+                }
+                attachment.isImage -> {
+                    append(PromptBuilder.attachedImageMessage(attachment.displayName, visionSupported))
+                    append("\n\n")
+                }
+            }
+            append(request.userText)
+        }
+        val userImages = attachedImageB64
+            ?.takeIf { visionSupported && it.isNotBlank() }
+            ?.let { listOf(it) }
+
+        val messages = PromptBuilder.cap(
+            buildList {
+                add(OllamaMessage(OllamaRole.SYSTEM, PromptBuilder.generalSystem()))
+                addAll(history)
+                add(
+                    OllamaMessage(
+                        role = OllamaRole.USER,
+                        content = userContent,
+                        images = userImages,
+                    ),
+                )
+            },
+        )
+        val raw = ollama.chat(model, messages)
+        // Prefer plain text. Only unwrap when the model still emits the JSON
+        // tool contract (common if the user just left a repo chat).
+        val text = unwrapGeneralReply(raw)
+        chat.appendAiText(request.repoKey, request.sessionId, text)
+        emit(TurnEvent.Reply(text))
+    }
+
+    private fun unwrapGeneralReply(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return "I didn't have anything to say — try again?"
+        // Heuristic: only attempt schema unwrap when it looks like our JSON.
+        val looksLikeToolJson = trimmed.startsWith("{") &&
+            (trimmed.contains("\"action\"") || trimmed.contains("'action'"))
+        if (!looksLikeToolJson) return trimmed
+        return when (val action = AiActionParser.parse(trimmed)) {
+            is AiAction.Reply -> action.text.ifBlank { trimmed }
+            else -> trimmed
+        }
     }
 
     private companion object {

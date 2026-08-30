@@ -108,6 +108,7 @@ data class GithubRepoDto(
     @SerialName("default_branch") val defaultBranch: String = "main",
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("html_url") val htmlUrl: String = "",
+    @SerialName("stargazers_count") val stargazersCount: Int = 0,
 )
 
 @Serializable

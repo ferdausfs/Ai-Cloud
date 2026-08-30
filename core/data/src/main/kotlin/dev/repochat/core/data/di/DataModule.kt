@@ -69,7 +69,8 @@ abstract class DataModule {
         @Singleton
         fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
             androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "repochat.db")
-                .fallbackToDestructiveMigration()
+                .addMigrations(AppDatabase.MIGRATION_1_2)
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
 
         @Provides
