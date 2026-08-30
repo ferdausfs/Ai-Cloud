@@ -3,6 +3,7 @@ package dev.repochat.core.data.remote
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl
+import okhttp3.ResponseBody
 
 /**
  * GitHub REST API v3 surface used by the app. Branch refs and tree refs use
@@ -69,6 +70,26 @@ interface GithubApi {
         @retrofit2.http.Query("branch") branch: String,
         @retrofit2.http.Query("per_page") perPage: Int = 5,
     ): GithubWorkflowRunsDto
+
+    /** Jobs (and steps) belonging to a single workflow run. */
+    @retrofit2.http.GET("repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
+    suspend fun listJobsForRun(
+        @retrofit2.http.Path("owner") owner: String,
+        @retrofit2.http.Path("repo") repo: String,
+        @retrofit2.http.Path("run_id") runId: Long,
+    ): GithubJobsDto
+
+    /**
+     * Plain-text log for a job. GitHub responds with a 302 to a short-lived
+     * download URL; OkHttp follows it. Not JSON — returns [ResponseBody].
+     */
+    @retrofit2.http.Streaming
+    @retrofit2.http.GET("repos/{owner}/{repo}/actions/jobs/{job_id}/logs")
+    suspend fun getJobLogs(
+        @retrofit2.http.Path("owner") owner: String,
+        @retrofit2.http.Path("repo") repo: String,
+        @retrofit2.http.Path("job_id") jobId: Long,
+    ): ResponseBody
 }
 
 /* ---------------------------- DTOs ---------------------------- */
@@ -166,6 +187,27 @@ data class GithubWorkflowRunDto(
     val conclusion: String? = null, // "success" | "failure" | "cancelled" | null while running
     @SerialName("html_url") val htmlUrl: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
+)
+
+@Serializable
+data class GithubJobsDto(
+    val jobs: List<GithubJobDto> = emptyList(),
+)
+
+@Serializable
+data class GithubJobDto(
+    val id: Long,
+    val name: String = "",
+    val conclusion: String? = null,
+    val status: String? = null,
+    val steps: List<GithubStepDto> = emptyList(),
+)
+
+@Serializable
+data class GithubStepDto(
+    val name: String = "",
+    val conclusion: String? = null,
+    val number: Int = 0,
 )
 
 @Serializable

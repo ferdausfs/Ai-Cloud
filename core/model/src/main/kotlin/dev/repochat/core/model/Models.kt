@@ -128,6 +128,21 @@ data class WorkflowRunInfo(
     }
 }
 
+/** One job inside a workflow run (with optional step summaries). */
+data class WorkflowJobInfo(
+    val id: Long,
+    val name: String,
+    val conclusion: String?,
+    val status: String = "",
+    val steps: List<WorkflowStepInfo> = emptyList(),
+)
+
+data class WorkflowStepInfo(
+    val name: String,
+    val conclusion: String?,
+    val number: Int,
+)
+
 data class ConnectionResult(val ok: Boolean, val detail: String)
 
 /**
@@ -156,6 +171,13 @@ data class TurnRequest(
     val sessionId: String,
     val userText: String,
     val attachment: ChatAttachment? = null,
+    /**
+     * When true, [dev.repochat.core.domain.AutoFixLoop] runs after the first
+     * successful commit: poll CI, fetch failure logs, and re-prompt the model
+     * until green or [autoFixMaxAttempts] is exhausted.
+     */
+    val autoFixUntilCiGreen: Boolean = false,
+    val autoFixMaxAttempts: Int = 5,
 )
 
 /** Progress events emitted while an AI turn runs. */
@@ -171,5 +193,21 @@ sealed interface TurnEvent {
     data class PullRequestCreated(val info: PullRequestInfo) : TurnEvent
     /** Latest Actions run for the working branch (after check_ci_status). */
     data class CiStatus(val run: WorkflowRunInfo?) : TurnEvent
+    /** Auto-fix loop progress (opt-in "fix until CI green"). */
+    data class AutoFixProgress(val event: AutoFixEvent) : TurnEvent
     data class Error(val error: AppError) : TurnEvent
+}
+
+/**
+ * Progress of the autonomous fix-until-CI-green loop. Surfaced as chat
+ * bubbles and notification text so the user can leave the app mid-loop.
+ */
+sealed interface AutoFixEvent {
+    data class AttemptStarted(val attempt: Int, val maxAttempts: Int) : AutoFixEvent
+    data class Committed(val attempt: Int, val summary: String) : AutoFixEvent
+    data class CiPending(val attempt: Int, val run: WorkflowRunInfo?) : AutoFixEvent
+    data class CiPassed(val attempt: Int, val run: WorkflowRunInfo) : AutoFixEvent
+    data class CiFailed(val attempt: Int, val run: WorkflowRunInfo?, val logExcerpt: String) : AutoFixEvent
+    data class GaveUp(val attemptsMade: Int, val history: List<String>, val lastLogExcerpt: String?) : AutoFixEvent
+    data class Error(val error: AppError) : AutoFixEvent
 }

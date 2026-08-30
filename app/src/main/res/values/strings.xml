@@ -86,6 +86,7 @@
     <string name="chat_additions_removals">+%1$d −%2$d</string>
     <string name="chat_error_unauthorized_action">Open Settings</string>
     <string name="chat_ci_status">CI status</string>
+    <string name="chat_auto_fix_ci">Auto-fix until CI passes</string>
 
     <!-- Foreground service / background AI turns -->
     <string name="turn_notification_channel_name">AI Agent Activity</string>
@@ -94,6 +95,12 @@
     <string name="turn_step_starting">Starting…</string>
     <string name="turn_step_thinking">Thinking…</string>
     <string name="turn_step_awaiting_approval">Waiting for your approval…</string>
+    <string name="turn_step_waiting_ci">Waiting on CI…</string>
+    <string name="turn_step_auto_committing">Auto-committing %1$s…</string>
+    <string name="turn_step_auto_attempt">Attempt %1$d/%2$d — editing…</string>
+    <string name="turn_step_auto_committed">Attempt %1$d/%2$d — committed, waiting on CI…</string>
+    <string name="turn_step_auto_waiting_ci">Attempt %1$d/%2$d — waiting on CI…</string>
+    <string name="turn_step_auto_ci_failed">Attempt %1$d/%2$d — CI failed, fixing…</string>
 
     <!-- Settings: OEM battery whitelist tip -->
     <string name="settings_battery_section">Background reliability</string>

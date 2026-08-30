@@ -5,6 +5,7 @@ import dev.repochat.core.model.GitFile
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSummary
+import dev.repochat.core.model.WorkflowJobInfo
 import dev.repochat.core.model.WorkflowRunInfo
 
 /**
@@ -59,4 +60,21 @@ interface GithubService {
         branch: String,
         perPage: Int = 5,
     ): List<WorkflowRunInfo>
+
+    /** Jobs (with steps) for a single workflow run. */
+    suspend fun listJobsForRun(
+        owner: String,
+        repo: String,
+        runId: Long,
+    ): List<WorkflowJobInfo>
+
+    /**
+     * Full plain-text log for a job. Callers should truncate before feeding
+     * the model (errors are almost always near the end).
+     */
+    suspend fun getJobLogs(
+        owner: String,
+        repo: String,
+        jobId: Long,
+    ): String
 }
