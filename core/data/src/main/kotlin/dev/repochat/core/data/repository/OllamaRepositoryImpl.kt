@@ -2,6 +2,7 @@ package dev.repochat.core.data.repository
 
 import dev.repochat.core.data.remote.OllamaApi
 import dev.repochat.core.data.remote.OllamaChatRequestDto
+import dev.repochat.core.data.remote.OllamaChatResponseDto
 import dev.repochat.core.data.remote.OllamaMessageDto
 import dev.repochat.core.data.remote.mapHttpErrors
 import dev.repochat.core.domain.OllamaService
@@ -9,10 +10,12 @@ import dev.repochat.core.model.AppError
 import dev.repochat.core.model.OllamaMessage
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.json.Json
 
 @Singleton
 class OllamaRepositoryImpl @Inject constructor(
     private val api: OllamaApi,
+    private val json: Json,
 ) : OllamaService {
 
     override suspend fun version(): String =
@@ -20,7 +23,7 @@ class OllamaRepositoryImpl @Inject constructor(
             ?: "unknown"
 
     override suspend fun chat(model: String, messages: List<OllamaMessage>): String {
-        val response = mapHttpErrors(AppError.Provider.OLLAMA) {
+        val rawBody = mapHttpErrors(AppError.Provider.OLLAMA) {
             api.chat(
                 OllamaChatRequestDto(
                     model = model,
@@ -33,12 +36,39 @@ class OllamaRepositoryImpl @Inject constructor(
                     },
                 )
             )
+        }.string()
+
+        // Ollama may return either a single JSON object or NDJSON chunks
+        // (one object per line). Concatenate every message.content delta in
+        // order — taking only the last line would drop the action payload.
+        val contentBuilder = StringBuilder()
+        var lastError: String? = null
+        var lastResponseField: String? = null
+
+        rawBody.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { line ->
+                val chunk = try {
+                    json.decodeFromString(OllamaChatResponseDto.serializer(), line)
+                } catch (_: Exception) {
+                    return@forEach
+                }
+                chunk.error?.takeIf { it.isNotBlank() }?.let { lastError = it }
+                chunk.message?.content?.let { contentBuilder.append(it) }
+                chunk.response?.takeIf { it.isNotBlank() }?.let { lastResponseField = it }
+            }
+
+        lastError?.let {
+            throw AppError.Api(AppError.Provider.OLLAMA, null, it)
         }
-        if (!response.error.isNullOrBlank()) {
-            throw AppError.Api(AppError.Provider.OLLAMA, null, response.error.orEmpty())
-        }
-        return response.message?.content
-            ?: response.response
-            ?: throw AppError.Api(AppError.Provider.OLLAMA, null, "Ollama returned an empty response.")
+
+        val content = contentBuilder.toString()
+        if (content.isNotBlank()) return content
+
+        // Non-streaming / legacy shape sometimes puts the full text in `response`.
+        lastResponseField?.let { return it }
+
+        throw AppError.Api(AppError.Provider.OLLAMA, null, "Ollama returned an empty response.")
     }
 }

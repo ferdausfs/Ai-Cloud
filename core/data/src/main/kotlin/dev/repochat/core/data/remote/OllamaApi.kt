@@ -8,9 +8,16 @@ interface OllamaApi {
     @retrofit2.http.GET("api/version")
     suspend fun version(): OllamaVersionDto
 
-    /** POST /api/chat — non-streaming completion with structured (JSON) output. */
+    /**
+     * POST /api/chat — returns the raw body.
+     *
+     * Ollama Cloud often replies with NDJSON (one JSON object per line / chunk)
+     * even when the request sets `"stream": false`. Decoding the whole body as a
+     * single [OllamaChatResponseDto] fails with "Expected EOF"; the repository
+     * parses each line and concatenates `message.content` deltas instead.
+     */
     @retrofit2.http.POST("api/chat")
-    suspend fun chat(@retrofit2.http.Body body: OllamaChatRequestDto): OllamaChatResponseDto
+    suspend fun chat(@retrofit2.http.Body body: OllamaChatRequestDto): okhttp3.ResponseBody
 }
 
 @Serializable
