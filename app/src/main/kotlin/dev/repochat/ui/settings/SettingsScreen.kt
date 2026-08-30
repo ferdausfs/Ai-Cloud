@@ -83,8 +83,6 @@ import dev.repochat.ui.theme.Teal400
 fun SettingsScreen(
     onBrowseRepos: () -> Unit,
     onResumeRepo: (owner: String, repo: String, defaultBranch: String) -> Unit,
-    /** When true, hide the legacy "Browse repositories" CTA (Repos live under the Repos tab). */
-    embeddedInTabs: Boolean = false,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -224,27 +222,25 @@ fun SettingsScreen(
                 Text(stringResource(R.string.settings_save), style = MaterialTheme.typography.labelLarge)
             }
 
-            if (!embeddedInTabs) {
-                Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
 
-                Button(
-                    onClick = onBrowseRepos,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = MaterialTheme.shapes.large,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-                ) {
-                    Text(stringResource(R.string.settings_continue), style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                }
+            Button(
+                onClick = onBrowseRepos,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.settings_continue), style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
             }
 
-            // Resume card — still useful from Settings when a last-active repo exists.
+            // Resume card
             AnimatedVisibility(
                 visible = state.activeRepo != null,
                 enter = expandVertically() + fadeIn(),

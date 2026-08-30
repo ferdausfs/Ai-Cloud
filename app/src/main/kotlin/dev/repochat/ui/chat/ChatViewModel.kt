@@ -9,7 +9,6 @@ import dev.repochat.core.domain.CreatePullRequestUseCase
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
-import dev.repochat.core.model.ChatMode
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoSession
@@ -94,115 +93,64 @@ class ChatViewModel @Inject constructor(
     private var repo: String = ""
     private var repoKey: String = ""
     private var defaultBranch: String = ""
-    private var mode: ChatMode = ChatMode.REPO
 
     private var messageJob: Job? = null
     private var turnObserveJob: Job? = null
     private var snackbarCounter = 0L
 
-    /**
-     * @param mode GENERAL or REPO
-     * @param existingRepoKey when reopening a known conversation (esp. general),
-     *   pass the stored `repoKey` so we don't create a duplicate session.
-     */
-    fun start(
-        owner: String,
-        repo: String,
-        defaultBranch: String,
-        mode: ChatMode = ChatMode.REPO,
-        existingRepoKey: String = "",
-    ) {
-        val provisionalKey = when {
-            existingRepoKey.isNotBlank() -> existingRepoKey
-            mode == ChatMode.REPO -> "$owner/$repo"
-            else -> ""
-        }
-        // Same conversation already bound (including a just-created general
-        // session whose key was empty at the first start() call).
-        if (this.mode == mode && this.repoKey.isNotEmpty()) {
-            val sameRepo = mode == ChatMode.REPO && this.repoKey == "$owner/$repo"
-            val sameGeneral = mode == ChatMode.GENERAL && (
-                existingRepoKey.isBlank() || existingRepoKey == this.repoKey
-            )
-            if (sameRepo || sameGeneral) return
-        }
-        if (provisionalKey.isNotEmpty() && provisionalKey == this.repoKey && this.mode == mode) return
-
+    fun start(owner: String, repo: String, defaultBranch: String) {
+        val key = "$owner/$repo"
+        if (key == this.repoKey) return
         this.owner = owner
         this.repo = repo
+        this.repoKey = key
         this.defaultBranch = defaultBranch
-        this.mode = mode
-        this.repoKey = provisionalKey
         _uiState.value = ChatUiState()
 
+        viewModelScope.launch { chatRepository.ensureSession(owner, repo, defaultBranch) }
+
         messageJob?.cancel()
-        turnObserveJob?.cancel()
-
         messageJob = viewModelScope.launch {
-            val session = when (mode) {
-                ChatMode.REPO -> {
-                    val key = "$owner/$repo"
-                    this@ChatViewModel.repoKey = key
-                    chatRepository.ensureSession(owner, repo, defaultBranch)
-                }
-                ChatMode.GENERAL -> {
-                    if (existingRepoKey.isNotBlank()) {
-                        val existing = chatRepository.getSession(existingRepoKey)
-                        if (existing != null) {
-                            this@ChatViewModel.repoKey = existing.repoKey
-                            existing
-                        } else {
-                            val created = chatRepository.createGeneralSession()
-                            this@ChatViewModel.repoKey = created.repoKey
-                            created
-                        }
-                    } else {
-                        val created = chatRepository.createGeneralSession()
-                        this@ChatViewModel.repoKey = created.repoKey
-                        created
-                    }
-                }
-            }
-            val boundKey = session.repoKey
-            _uiState.update { it.copy(session = session) }
-
-            chatRepository.session(boundKey)
+            chatRepository.session(key)
                 .filterNotNull()
-                .flatMapLatest { s ->
-                    _uiState.update { it.copy(session = s) }
-                    chatRepository.messages(boundKey, s.sessionId)
+                .flatMapLatest { session ->
+                    _uiState.update { it.copy(session = session) }
+                    chatRepository.messages(key, session.sessionId)
                 }
                 .collect { messages ->
                     _uiState.update { it.copy(messages = messages) }
                 }
         }
 
-        // Mirror coordinator live state for this conversation (and any in-flight
-        // turn that continued while we were backgrounded).
+        // Mirror coordinator live state for this repo (and any in-flight turn
+        // that continued while we were backgrounded).
+        turnObserveJob?.cancel()
         turnObserveJob = viewModelScope.launch {
             turnCoordinator.state.collect { live ->
-                val bound = repoKey
-                if (bound.isNotEmpty() && live.repoKey.isNotEmpty() && live.repoKey != bound) {
+                if (live.repoKey.isNotEmpty() && live.repoKey != repoKey) {
+                    // Another repo's turn — don't clobber this chat's UI.
                     return@collect
                 }
                 _uiState.update { ui ->
-                    val same = bound.isEmpty() || live.repoKey.isEmpty() || live.repoKey == bound
+                    val sameRepo = live.repoKey.isEmpty() || live.repoKey == repoKey
                     val prInfo = live.prInfo
                     ui.copy(
-                        typing = if (same) live.typing else ui.typing,
-                        workingStep = if (same) live.workingStep else ui.workingStep,
-                        approvalPending = if (same) live.approvalPending else ui.approvalPending,
-                        approving = if (same) live.approving else ui.approving,
-                        pendingWriteMessageId = if (same) live.pendingWriteMessageId else ui.pendingWriteMessageId,
-                        liveChange = if (same) live.liveChange else ui.liveChange,
-                        treeTruncated = if (same) (live.treeTruncated || ui.treeTruncated) else ui.treeTruncated,
-                        error = if (same) live.error else ui.error,
-                        canRetry = if (same) live.canRetry else ui.canRetry,
-                        ciStatus = if (same) (live.ciStatus ?: ui.ciStatus) else ui.ciStatus,
-                        prState = if (same && prInfo != null) PrState.Ready(prInfo) else ui.prState,
-                        autoFixActive = if (same) live.autoFixActive else ui.autoFixActive,
-                        autoFixAttempt = if (same) live.autoFixAttempt else ui.autoFixAttempt,
-                        autoFixMaxAttempts = if (same) live.autoFixMaxAttempts else ui.autoFixMaxAttempts,
+                        typing = if (sameRepo) live.typing else ui.typing,
+                        workingStep = if (sameRepo) live.workingStep else ui.workingStep,
+                        approvalPending = if (sameRepo) live.approvalPending else ui.approvalPending,
+                        approving = if (sameRepo) live.approving else ui.approving,
+                        pendingWriteMessageId = if (sameRepo) live.pendingWriteMessageId else ui.pendingWriteMessageId,
+                        liveChange = if (sameRepo) live.liveChange else ui.liveChange,
+                        treeTruncated = if (sameRepo) (live.treeTruncated || ui.treeTruncated) else ui.treeTruncated,
+                        // Prefer live error when the coordinator has one; keep a
+                        // dismissed-null from dismissError (coordinator cleared).
+                        error = if (sameRepo) live.error else ui.error,
+                        canRetry = if (sameRepo) live.canRetry else ui.canRetry,
+                        ciStatus = if (sameRepo) (live.ciStatus ?: ui.ciStatus) else ui.ciStatus,
+                        prState = if (sameRepo && prInfo != null) PrState.Ready(prInfo) else ui.prState,
+                        autoFixActive = if (sameRepo) live.autoFixActive else ui.autoFixActive,
+                        autoFixAttempt = if (sameRepo) live.autoFixAttempt else ui.autoFixAttempt,
+                        autoFixMaxAttempts = if (sameRepo) live.autoFixMaxAttempts else ui.autoFixMaxAttempts,
                     )
                 }
                 live.snackbar?.let { snack ->
@@ -261,11 +209,7 @@ class ChatViewModel @Inject constructor(
         }.ifBlank { "📎 ${attachment?.displayName.orEmpty()}" }
 
         val userText = trimmed.ifEmpty { displayText }
-        val autoFix = if (mode == ChatMode.GENERAL) {
-            false
-        } else {
-            autoFixOverride ?: state.autoFixUntilCiGreen
-        }
+        val autoFix = autoFixOverride ?: state.autoFixUntilCiGreen
         turnCoordinator.rememberRetry(userText, attachment, autoFix = autoFix)
         _uiState.update { it.copy(pendingAttachment = null, error = null) }
 
@@ -287,7 +231,6 @@ class ChatViewModel @Inject constructor(
                 sessionId = session.sessionId,
                 userText = userText,
                 attachment = attachment,
-                mode = mode,
                 autoFixUntilCiGreen = autoFix,
             )
             // Runs in the application-scoped coordinator + FGS — not viewModelScope.
@@ -301,7 +244,6 @@ class ChatViewModel @Inject constructor(
 
     fun createPullRequestNow() {
         val session = _uiState.value.session ?: return
-        if (session.isGeneral) return
         if (_uiState.value.prState == PrState.Creating) return
         val head = session.workingBranch ?: "ai-chat/${session.sessionId}"
         _uiState.update { it.copy(prState = PrState.Creating) }

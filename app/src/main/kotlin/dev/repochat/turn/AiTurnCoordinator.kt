@@ -76,8 +76,7 @@ class AiTurnCoordinator @Inject constructor(
     fun startTurn(request: TurnRequest) {
         if (turnJob?.isActive == true) return
 
-        // General chat never runs the CI auto-fix loop (no repo tools).
-        val autoFix = request.autoFixUntilCiGreen && !request.isGeneral
+        val autoFix = request.autoFixUntilCiGreen
         _state.update {
             it.copy(
                 active = true,
@@ -106,14 +105,7 @@ class AiTurnCoordinator @Inject constructor(
             )
         }
 
-        AiTurnService.start(
-            appContext,
-            owner = request.owner,
-            repo = request.repo,
-            defaultBranch = request.defaultBranch,
-            mode = request.mode.name,
-            repoKey = request.repoKey,
-        )
+        AiTurnService.start(appContext, request.owner, request.repo, request.defaultBranch)
 
         val events: Flow<TurnEvent> = if (autoFix) {
             autoFixLoop.run(request)
