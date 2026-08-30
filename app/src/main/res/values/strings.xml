@@ -121,4 +121,16 @@
     <string name="chat_suggest_general_debug">How do I debug a Compose recomposition loop?</string>
     <string name="turn_notification_title_general">RepoChat is thinking</string>
     <string name="settings_general_chat">Start general chat</string>
+    <string name="chats_title">Chats</string>
+    <string name="chats_new">New chat</string>
+    <string name="chats_new_title">Start a conversation</string>
+    <string name="chats_new_general">General chat</string>
+    <string name="chats_new_general_body">Ask anything — coding help, explanations, brainstorming. No repository tools.</string>
+    <string name="chats_new_repo">Chat with a repo</string>
+    <string name="chats_new_repo_body">Pick a GitHub repository. The AI can read files, propose commits, and open PRs.</string>
+    <string name="chats_empty_title">No conversations yet</string>
+    <string name="chats_empty_body">Tap + to start a general chat or open a repository conversation.</string>
+    <string name="chats_delete_title">Delete conversation?</string>
+    <string name="chats_delete_body">This removes the chat history from this device. Repository files and branches are not affected.</string>
+    <string name="chats_delete_confirm">Delete</string>
 </resources>

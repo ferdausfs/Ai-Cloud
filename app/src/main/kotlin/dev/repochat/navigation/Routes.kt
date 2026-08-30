@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 data object SettingsRoute
 
 @Serializable
+data object ChatsRoute
+
+@Serializable
 data object RepoPickerRoute
 
 @Serializable

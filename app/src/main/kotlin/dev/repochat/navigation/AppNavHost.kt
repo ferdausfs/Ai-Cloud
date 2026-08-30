@@ -14,6 +14,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import dev.repochat.ui.chat.ChatScreen
+import dev.repochat.ui.chats.ChatsHomeScreen
 import dev.repochat.ui.repopicker.RepoPickerScreen
 import dev.repochat.ui.settings.SettingsScreen
 
@@ -45,6 +46,9 @@ fun AppNavHost(
             SettingsScreen(
                 onBrowseRepos = {
                     navController.navigate(RepoPickerRoute) { launchSingleTop = true }
+                },
+                onOpenChats = {
+                    navController.navigate(ChatsRoute) { launchSingleTop = true }
                 },
                 onOpenGeneralChat = {
                     navController.navigate(
@@ -101,6 +105,51 @@ fun AppNavHost(
                     ) {
                         launchSingleTop = true
                     }
+                },
+            )
+        }
+
+
+        composable<ChatsRoute> {
+            ChatsHomeScreen(
+                onBack = { navController.popBackStack() },
+                onOpenConversation = { summary ->
+                    val s = summary.session
+                    if (s.isGeneral) {
+                        navController.navigate(
+                            ChatRoute(
+                                owner = "",
+                                repo = "",
+                                defaultBranch = "",
+                                mode = "GENERAL",
+                                repoKey = s.repoKey,
+                            ),
+                        ) { launchSingleTop = true }
+                    } else {
+                        navController.navigate(
+                            ChatRoute(
+                                owner = s.owner,
+                                repo = s.repo,
+                                defaultBranch = s.defaultBranch,
+                                mode = "REPO",
+                                repoKey = s.repoKey,
+                            ),
+                        ) { launchSingleTop = true }
+                    }
+                },
+                onNewGeneral = {
+                    navController.navigate(
+                        ChatRoute(
+                            owner = "",
+                            repo = "",
+                            defaultBranch = "",
+                            mode = "GENERAL",
+                            repoKey = "",
+                        ),
+                    ) { launchSingleTop = true }
+                },
+                onNewRepoChat = {
+                    navController.navigate(RepoPickerRoute) { launchSingleTop = true }
                 },
             )
         }
