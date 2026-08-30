@@ -13,7 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -43,7 +43,7 @@ class AutoFixLoop @Inject constructor(
     fun run(
         request: TurnRequest,
         maxAttempts: Int = request.autoFixMaxAttempts.coerceIn(1, 10),
-    ): Flow<TurnEvent> = channelFlow {
+    ): Flow<TurnEvent> = flow {
         val history = mutableListOf<String>()
         var prompt = request.userText
         var lastLog: String? = null
@@ -67,8 +67,7 @@ class AutoFixLoop @Inject constructor(
 
         while (attempt < maxAttempts) {
             attempt++
-            val started = AutoFixEvent.AttemptStarted(attempt, maxAttempts)
-            send(TurnEvent.AutoFixProgress(started))
+            emit(TurnEvent.AutoFixProgress(AutoFixEvent.AttemptStarted(attempt, maxAttempts)))
             postStatus(request, formatAttemptStarted(attempt, maxAttempts))
 
             // Auto-approve every write_file so the loop stays autonomous.
@@ -83,15 +82,18 @@ class AutoFixLoop @Inject constructor(
                 when (event) {
                     is TurnEvent.ProposeWrite -> {
                         // Surface the diff UI, then approve immediately.
-                        send(event)
+                        emit(event)
                         approval.tryEmit(true)
                     }
                     is TurnEvent.WriteCommitted -> {
                         committedSummary = "${event.change.path}: ${event.change.commitMessage}"
                         workingBranch = event.change.branch
-                        send(event)
-                        val committed = AutoFixEvent.Committed(attempt, committedSummary!!)
-                        send(TurnEvent.AutoFixProgress(committed))
+                        emit(event)
+                        emit(
+                            TurnEvent.AutoFixProgress(
+                                AutoFixEvent.Committed(attempt, committedSummary!!),
+                            ),
+                        )
                         postStatus(
                             request,
                             "Attempt $attempt/$maxAttempts — committed `${event.change.path}` " +
@@ -100,16 +102,16 @@ class AutoFixLoop @Inject constructor(
                     }
                     is TurnEvent.WriteDeclined -> {
                         userDeclined = true
-                        send(event)
+                        emit(event)
                     }
                     is TurnEvent.Error -> {
                         turnError = event.error
-                        send(event)
+                        emit(event)
                     }
                     is TurnEvent.Reply -> {
                         // Model answered without a write — keep the reply visible,
                         // but if we never committed we can't wait on CI for this attempt.
-                        send(event)
+                        emit(event)
                     }
                     is TurnEvent.Working,
                     is TurnEvent.TreeReady,
@@ -117,36 +119,35 @@ class AutoFixLoop @Inject constructor(
                     is TurnEvent.PullRequestCreated,
                     is TurnEvent.CiStatus,
                     is TurnEvent.AutoFixProgress,
-                    -> send(event)
+                    -> emit(event)
                 }
             }
 
             if (userDeclined) {
                 val msg = "Auto-fix stopped — a change was declined."
                 postStatus(request, msg)
-                send(
+                emit(
                     TurnEvent.AutoFixProgress(
                         AutoFixEvent.GaveUp(attempt, history + msg, lastLog),
                     ),
                 )
-                return@channelFlow
+                return@flow
             }
 
-            turnError?.let { err ->
+            val err = turnError
+            if (err != null) {
                 history += "Attempt $attempt: turn error — ${err.userMessage}"
                 lastLog = err.userMessage
-                // Retry with the error context unless we're out of attempts.
                 if (attempt >= maxAttempts) {
-                    finishGaveUp(request, attempt, history, lastLog)
-                    return@channelFlow
+                    emitGaveUp(request, attempt, history, lastLog)
+                    return@flow
                 }
                 prompt = buildFixPrompt(request.userText, history, err.userMessage)
                 continue
             }
 
             if (committedSummary == null) {
-                // Model replied without committing — treat as "no code change this
-                // attempt" and stop rather than spinning on the same reply.
+                // Model replied without committing — stop rather than spinning.
                 history += "Attempt $attempt: model replied without a commit"
                 val summary = buildString {
                     append("I finished attempt $attempt/$maxAttempts without committing a change. ")
@@ -154,51 +155,44 @@ class AutoFixLoop @Inject constructor(
                     append("Want me to keep trying with a more specific instruction, or will you look at it?")
                 }
                 postStatus(request, summary)
-                send(
+                emit(
                     TurnEvent.AutoFixProgress(
                         AutoFixEvent.GaveUp(attempt, history, lastLog),
                     ),
                 )
-                send(TurnEvent.Reply(summary))
-                return@channelFlow
+                emit(TurnEvent.Reply(summary))
+                return@flow
             }
 
             history += "Attempt $attempt: committed $committedSummary"
-            val branch = workingBranch
-                ?: "ai-chat/${request.sessionId}"
+            val branch = workingBranch ?: "ai-chat/${request.sessionId}"
 
             // ---- Poll CI -------------------------------------------------
-            send(TurnEvent.Working("Waiting on CI (attempt $attempt/$maxAttempts)"))
-            send(
-                TurnEvent.AutoFixProgress(
-                    AutoFixEvent.CiPending(attempt, null),
-                ),
-            )
+            emit(TurnEvent.Working("Waiting on CI (attempt $attempt/$maxAttempts)"))
+            emit(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, null)))
 
             val run = waitForCi(
                 owner = request.owner,
                 repo = request.repo,
                 branch = branch,
                 baselineRunId = baselineRunId,
-                onTick = { latest ->
-                    send(TurnEvent.CiStatus(latest))
-                    send(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, latest)))
-                    send(
-                        TurnEvent.Working(
-                            "CI ${latest?.status ?: "pending"} " +
-                                "(attempt $attempt/$maxAttempts)",
-                        ),
-                    )
-                },
-            )
+            ) { latest ->
+                emit(TurnEvent.CiStatus(latest))
+                emit(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, latest)))
+                emit(
+                    TurnEvent.Working(
+                        "CI ${latest?.status ?: "pending"} (attempt $attempt/$maxAttempts)",
+                    ),
+                )
+            }
 
             if (run == null) {
                 val note = "No CI run appeared for `$branch` within the wait window."
                 history += "Attempt $attempt: $note"
                 lastLog = note
                 if (attempt >= maxAttempts) {
-                    finishGaveUp(request, attempt, history, lastLog)
-                    return@channelFlow
+                    emitGaveUp(request, attempt, history, lastLog)
+                    return@flow
                 }
                 prompt = buildFixPrompt(
                     originalTask = request.userText,
@@ -210,12 +204,11 @@ class AutoFixLoop @Inject constructor(
             }
 
             baselineRunId = run.id
-            send(TurnEvent.CiStatus(run))
+            emit(TurnEvent.CiStatus(run))
 
             when (run.conclusion) {
                 "success" -> {
-                    val passed = AutoFixEvent.CiPassed(attempt, run)
-                    send(TurnEvent.AutoFixProgress(passed))
+                    emit(TurnEvent.AutoFixProgress(AutoFixEvent.CiPassed(attempt, run)))
                     val msg = buildString {
                         append("✅ CI is green on attempt $attempt/$maxAttempts. ")
                         append(run.summarize())
@@ -223,16 +216,16 @@ class AutoFixLoop @Inject constructor(
                         append("\n\nOriginal task: ${request.userText}")
                     }
                     postStatus(request, msg)
-                    send(TurnEvent.Reply(msg))
-                    return@channelFlow
+                    emit(TurnEvent.Reply(msg))
+                    return@flow
                 }
                 "cancelled", "skipped" -> {
                     val note = "CI ${run.conclusion} on attempt $attempt."
                     history += note
                     lastLog = note
                     if (attempt >= maxAttempts) {
-                        finishGaveUp(request, attempt, history, lastLog)
-                        return@channelFlow
+                        emitGaveUp(request, attempt, history, lastLog)
+                        return@flow
                     }
                     prompt = buildFixPrompt(request.userText, history, note)
                     continue
@@ -246,7 +239,7 @@ class AutoFixLoop @Inject constructor(
                     )
                     lastLog = excerpt
                     history += "Attempt $attempt: CI failed — ${shortReason(excerpt)}"
-                    send(
+                    emit(
                         TurnEvent.AutoFixProgress(
                             AutoFixEvent.CiFailed(attempt, run, excerpt),
                         ),
@@ -257,15 +250,15 @@ class AutoFixLoop @Inject constructor(
                             "```\n${excerpt.take(1_500)}\n```",
                     )
                     if (attempt >= maxAttempts) {
-                        finishGaveUp(request, attempt, history, lastLog)
-                        return@channelFlow
+                        emitGaveUp(request, attempt, history, lastLog)
+                        return@flow
                     }
                     prompt = buildFixPrompt(request.userText, history, excerpt)
                 }
             }
         }
 
-        finishGaveUp(request, attempt, history, lastLog)
+        emitGaveUp(request, attempt, history, lastLog)
     }.catch { error ->
         if (error is CancellationException) throw error
         val appError = when (error) {
@@ -278,17 +271,20 @@ class AutoFixLoop @Inject constructor(
         emit(TurnEvent.Error(appError))
     }
 
-    private suspend fun kotlinx.coroutines.channels.ProducerScope<TurnEvent>.finishGaveUp(
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<TurnEvent>.emitGaveUp(
         request: TurnRequest,
         attemptsMade: Int,
         history: List<String>,
         lastLog: String?,
     ) {
-        val gaveUp = AutoFixEvent.GaveUp(attemptsMade, history.toList(), lastLog)
-        send(TurnEvent.AutoFixProgress(gaveUp))
+        emit(
+            TurnEvent.AutoFixProgress(
+                AutoFixEvent.GaveUp(attemptsMade, history.toList(), lastLog),
+            ),
+        )
         val summary = buildGaveUpMessage(request.userText, attemptsMade, history, lastLog)
         postStatus(request, summary)
-        send(TurnEvent.Reply(summary))
+        emit(TurnEvent.Reply(summary))
     }
 
     private suspend fun postStatus(request: TurnRequest, text: String) {
@@ -321,12 +317,10 @@ class AutoFixLoop @Inject constructor(
             } catch (_: Exception) {
                 emptyList()
             }
-            // Prefer a run newer than the baseline; fall back to the latest run
-            // once it looks like it started after we committed.
+            // Prefer a run newer than the baseline.
             candidate = runs.firstOrNull { baselineRunId == null || it.id != baselineRunId }
                 ?: runs.firstOrNull()
             if (candidate != null && candidate.id == baselineRunId) {
-                // Still looking at the pre-commit run — keep waiting for a new one.
                 candidate = null
             }
             lastSeen = candidate ?: lastSeen
@@ -340,8 +334,6 @@ class AutoFixLoop @Inject constructor(
             delay(delayMs)
             delayMs = (delayMs * 2).coerceAtMost(ciPollMaxMs)
         }
-        // Return whatever we last saw (may still be in_progress) so the caller
-        // can decide; null means nothing ever appeared.
         return lastSeen?.takeIf {
             it.status == "completed" || !it.conclusion.isNullOrBlank()
         }
@@ -401,7 +393,7 @@ class AutoFixLoop @Inject constructor(
             }.orEmpty()
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ""
         }
 
