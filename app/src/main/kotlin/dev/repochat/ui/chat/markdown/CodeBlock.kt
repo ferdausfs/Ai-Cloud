@@ -1,4 +1,4 @@
-package dev.repochat.ui.chat
+package dev.repochat.ui.chat.markdown
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -38,47 +37,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.repochat.R
-import dev.repochat.core.model.DiffLine
-import dev.repochat.core.model.DiffLineType
-import dev.repochat.core.model.LineDiffer
 import dev.repochat.ui.theme.CodeTextStyle
-import dev.repochat.ui.theme.DiffPalette
-import dev.repochat.ui.theme.diffPalette
 import kotlinx.coroutines.delay
 
-private const val MAX_RENDERED_LINES = 400
 private const val COLLAPSE_LINE_THRESHOLD = 15
 private val COLLAPSED_MAX_HEIGHT = 220.dp
 
 /**
- * Line-based diff view wrapped in the same card chrome as [dev.repochat.ui.chat.markdown.CodeBlock]
- * (language label, copy of the *new* file content, collapse for long diffs).
+ * ChatGPT/Claude-style fenced code card: language chip, one-tap copy with
+ * brief checkmark confirmation, monospace body (horizontally scrollable),
+ * optional collapse for long blocks. Theme-derived colors for light/dark.
  */
 @Composable
-fun DiffView(
-    oldText: String,
-    newText: String,
-    modifier: Modifier = Modifier,
+fun CodeBlock(
+    code: String,
     language: String? = null,
+    modifier: Modifier = Modifier,
+    /** When false, never collapses (e.g. short write_file previews). */
+    collapsible: Boolean = true,
 ) {
-    val palette = diffPalette()
     val scheme = MaterialTheme.colorScheme
-    val diff = remember(oldText, newText) { LineDiffer.diff(oldText, newText) }
-    val shown = diff.lines.take(MAX_RENDERED_LINES)
     val shape = RoundedCornerShape(12.dp)
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
-    val canCollapse = shown.size > COLLAPSE_LINE_THRESHOLD
-    var expanded by remember(oldText, newText) { mutableStateOf(!canCollapse) }
+    val lineCount = remember(code) { code.count { it == '\n' } + if (code.isEmpty()) 0 else 1 }
+    val canCollapse = collapsible && lineCount > COLLAPSE_LINE_THRESHOLD
+    var expanded by remember(code) { mutableStateOf(!canCollapse) }
 
     LaunchedEffect(copied) {
         if (copied) {
@@ -87,6 +78,19 @@ fun DiffView(
         }
     }
 
+    val palette = remember(scheme) {
+        SimpleSyntaxHighlighter.Palette(
+            plain = scheme.onSurface,
+            keyword = scheme.primary,
+            string = scheme.secondary,
+            comment = scheme.onSurfaceVariant.copy(alpha = 0.85f),
+            number = scheme.tertiary,
+            type = scheme.primary.copy(alpha = 0.85f),
+        )
+    }
+    val highlighted = remember(code, language, palette) {
+        SimpleSyntaxHighlighter.highlight(code, language, palette)
+    }
     val label = language?.takeIf { it.isNotBlank() }?.lowercase()
         ?: stringResource(R.string.chat_code_default_lang)
 
@@ -99,6 +103,7 @@ fun DiffView(
             .border(1.dp, scheme.outlineVariant.copy(alpha = 0.6f), shape),
     ) {
         Column(modifier = Modifier.animateContentSize(tween(220, easing = FastOutSlowInEasing))) {
+            // Header: language + copy
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -117,7 +122,7 @@ fun DiffView(
                 )
                 IconButton(
                     onClick = {
-                        clipboard.setText(AnnotatedString(newText))
+                        clipboard.setText(AnnotatedString(code))
                         copied = true
                     },
                     modifier = Modifier.size(36.dp),
@@ -147,25 +152,20 @@ fun DiffView(
                 SelectionContainer {
                     val hScroll = rememberScrollState()
                     val vScroll = rememberScrollState()
-                    Column(
+                    Text(
+                        text = highlighted,
+                        style = CodeTextStyle.copy(color = scheme.onSurface),
                         modifier = Modifier
                             .horizontalScroll(hScroll)
                             .then(
-                                if (!expanded && canCollapse) Modifier.verticalScroll(vScroll)
-                                else Modifier,
+                                if (!expanded && canCollapse) {
+                                    Modifier.verticalScroll(vScroll)
+                                } else {
+                                    Modifier
+                                },
                             )
-                            .background(scheme.surfaceVariant),
-                    ) {
-                        shown.forEach { line -> DiffRow(line = line, palette = palette) }
-                        if (diff.lines.size > MAX_RENDERED_LINES) {
-                            Text(
-                                text = "… ${diff.lines.size - MAX_RENDERED_LINES} more lines hidden",
-                                style = CodeTextStyle,
-                                color = palette.contextText,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
                 }
             }
 
@@ -190,57 +190,4 @@ fun DiffView(
             }
         }
     }
-}
-
-@Composable
-private fun DiffRow(line: DiffLine, palette: DiffPalette) {
-    val background = when (line.type) {
-        DiffLineType.ADD -> palette.addBackground
-        DiffLineType.REMOVE -> palette.removeBackground
-        DiffLineType.CONTEXT -> Color.Transparent
-    }
-    val textColor = when (line.type) {
-        DiffLineType.ADD -> palette.addText
-        DiffLineType.REMOVE -> palette.removeText
-        DiffLineType.CONTEXT -> palette.contextText
-    }
-    val sign = when (line.type) {
-        DiffLineType.ADD -> "+"
-        DiffLineType.REMOVE -> "-"
-        DiffLineType.CONTEXT -> " "
-    }
-
-    Row(
-        modifier = Modifier.background(background),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Gutter(text = line.oldLine?.toString().orEmpty(), palette = palette)
-        Gutter(text = line.newLine?.toString().orEmpty(), palette = palette)
-        Text(
-            text = sign,
-            style = CodeTextStyle,
-            color = textColor,
-            modifier = Modifier.width(14.dp),
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = line.text.ifEmpty { " " },
-            style = CodeTextStyle,
-            color = textColor,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
-        )
-    }
-}
-
-@Composable
-private fun Gutter(text: String, palette: DiffPalette) {
-    Text(
-        text = text,
-        style = CodeTextStyle,
-        color = palette.contextText.copy(alpha = 0.75f),
-        textAlign = TextAlign.End,
-        modifier = Modifier
-            .width(36.dp)
-            .padding(end = 6.dp),
-    )
 }

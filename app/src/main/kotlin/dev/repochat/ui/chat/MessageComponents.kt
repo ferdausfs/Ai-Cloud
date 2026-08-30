@@ -15,28 +15,34 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,8 +52,12 @@ import dev.repochat.core.model.ChatRole
 import dev.repochat.core.model.MessageKind
 import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PendingChange
+import dev.repochat.ui.chat.markdown.CodeBlock
+import dev.repochat.ui.chat.markdown.MarkdownMessageContent
+import dev.repochat.ui.chat.markdown.preferLogCodeBlock
 import dev.repochat.ui.components.InfoChip
 import dev.repochat.ui.theme.CodeTextStyle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -94,6 +104,7 @@ fun MessageItem(
             MessageKind.TEXT -> ChatBubble(
                 text = message.text.orEmpty(),
                 isUser = isUser,
+                messageId = message.id,
             )
 
             MessageKind.READ_FILE -> ReadFileCard(message = message)
@@ -115,12 +126,18 @@ fun MessageItem(
 fun ChatBubble(
     text: String,
     isUser: Boolean,
+    messageId: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     val shape = if (isUser) {
         RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp)
     } else {
         RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 6.dp, bottomEnd = 20.dp)
+    }
+    val contentColor = if (isUser) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurface
     }
     Surface(
         shape = shape,
@@ -129,20 +146,28 @@ fun ChatBubble(
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        contentColor = if (isUser) {
-            MaterialTheme.colorScheme.onPrimary
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+        contentColor = contentColor,
         modifier = modifier
-            .fillMaxWidth(0.85f)
-            .bubbleIn(key = text),
+            .fillMaxWidth(0.92f)
+            .bubbleIn(key = "$messageId-$text".hashCode()),
     ) {
-        SelectionContainer {
-            Text(
+        if (isUser) {
+            // User messages stay plain — they are short prompts, not markdown docs.
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+        } else {
+            val asLog = preferLogCodeBlock(text)
+            MarkdownMessageContent(
                 text = text,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                contentColor = contentColor,
+                isOnPrimary = false,
+                forceCodeLanguage = if (asLog) "log" else null,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             )
         }
     }
@@ -210,6 +235,14 @@ fun WriteFileCard(
     val newContent = liveChange?.newContent ?: decoded.orEmpty()
     val oldContent = liveChange?.oldContent
     val showDiff = liveChange != null
+    val clipboard = LocalClipboardManager.current
+    var copiedPath by remember { mutableStateOf(false) }
+    LaunchedEffect(copiedPath) {
+        if (copiedPath) {
+            delay(1_500)
+            copiedPath = false
+        }
+    }
 
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -224,7 +257,7 @@ fun WriteFileCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 8.dp),
+                    .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -248,7 +281,27 @@ fun WriteFileCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        val body = if (showDiff) newContent else decoded.orEmpty()
+                        if (body.isNotEmpty()) {
+                            clipboard.setText(AnnotatedString(body))
+                            copiedPath = true
+                        }
+                    },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = if (copiedPath) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                        contentDescription = stringResource(R.string.chat_code_copy),
+                        tint = if (copiedPath) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
                 StatusChip(message = message, branch = branch)
             }
 
@@ -278,13 +331,31 @@ fun WriteFileCard(
                 DiffView(
                     oldText = oldContent.orEmpty(),
                     newText = newContent,
+                    language = guessLanguage(message.filePath),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 300.dp)
-                        .padding(top = 6.dp),
+                        .heightIn(max = 320.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
+            } else if (newContent.isNotBlank()) {
+                // History without live diff — still show content in a CodeBlock.
+                CodeBlock(
+                    code = newContent,
+                    language = guessLanguage(message.filePath),
+                    collapsible = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+                if (message.commitMessage.orEmpty().isNotBlank()) {
+                    Text(
+                        text = message.commitMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                    )
+                }
             } else {
-                // Persisted history without live diff context.
                 Text(
                     text = message.commitMessage.orEmpty().ifEmpty {
                         stringResource(R.string.chat_proposed_change)
@@ -388,5 +459,32 @@ fun TypingBubble(step: String, modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+internal fun guessLanguage(path: String?): String? {
+    val name = path?.substringAfterLast('/') ?: return null
+    val ext = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+    return when (ext) {
+        "kt", "kts" -> "kotlin"
+        "java" -> "java"
+        "js", "mjs", "cjs" -> "javascript"
+        "ts", "tsx" -> "typescript"
+        "py" -> "python"
+        "xml" -> "xml"
+        "gradle" -> "groovy"
+        "md" -> "markdown"
+        "json" -> "json"
+        "yml", "yaml" -> "yaml"
+        "sh", "bash" -> "bash"
+        "sql" -> "sql"
+        "css" -> "css"
+        "html", "htm" -> "html"
+        "swift" -> "swift"
+        "go" -> "go"
+        "rs" -> "rust"
+        "c", "h" -> "c"
+        "cpp", "cc", "hpp" -> "cpp"
+        else -> ext.ifBlank { null }
     }
 }
