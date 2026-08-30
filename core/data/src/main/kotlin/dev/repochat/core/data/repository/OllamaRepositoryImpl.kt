@@ -25,7 +25,11 @@ class OllamaRepositoryImpl @Inject constructor(
                 OllamaChatRequestDto(
                     model = model,
                     messages = messages.map {
-                        OllamaMessageDto(role = it.role.wireName, content = it.content)
+                        OllamaMessageDto(
+                            role = it.role.wireName,
+                            content = it.content,
+                            images = it.images,
+                        )
                     },
                 )
             )

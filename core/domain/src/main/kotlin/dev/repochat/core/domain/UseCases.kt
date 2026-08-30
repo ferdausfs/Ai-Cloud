@@ -44,7 +44,10 @@ class TestOllamaUseCase @Inject constructor(
     } catch (e: AppError) {
         ConnectionResult(false, e.userMessage)
     } catch (e: Exception) {
-        ConnectionResult(false, "Could not reach Ollama: ${e.message ?: "network error"}")
+        ConnectionResult(
+            false,
+            "Could not reach Ollama: ${e.message?.takeIf { it.isNotBlank() } ?: "network error"}",
+        )
     }
 }
 
@@ -56,7 +59,10 @@ class TestGithubUseCase @Inject constructor(
     } catch (e: AppError) {
         ConnectionResult(false, e.userMessage)
     } catch (e: Exception) {
-        ConnectionResult(false, "Could not reach GitHub: ${e.message ?: "network error"}")
+        ConnectionResult(
+            false,
+            "Could not reach GitHub: ${e.message?.takeIf { it.isNotBlank() } ?: "network error"}",
+        )
     }
 }
 

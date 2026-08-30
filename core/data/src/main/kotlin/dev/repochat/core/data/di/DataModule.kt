@@ -95,6 +95,9 @@ abstract class DataModule {
             ignoreUnknownKeys = true
             isLenient = true
             coerceInputValues = true
+            // Omit null optional fields (e.g. OllamaMessageDto.images) so
+            // text-only chat payloads stay clean for non-vision models.
+            explicitNulls = false
         }
 
         @Provides
@@ -114,8 +117,15 @@ abstract class DataModule {
         @Provides
         @Singleton
         fun provideOllamaApi(json: Json, settings: SettingsRepository): OllamaApi {
+            // LLM calls (especially large cloud models with a full repo tree in
+            // context) routinely exceed OkHttp's 10s defaults — give generous
+            // timeouts so a slow generation surfaces as a real response/error
+            // instead of a generic SocketTimeoutException.
             val client = OkHttpClient.Builder()
                 .addInterceptor(OllamaAuthInterceptor { settings.cached().ollamaKey })
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             return Retrofit.Builder()
                 .baseUrl("https://ollama.com/")

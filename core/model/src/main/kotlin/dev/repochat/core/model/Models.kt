@@ -94,6 +94,23 @@ data class PullRequestInfo(val number: Long, val htmlUrl: String, val title: Str
 
 data class ConnectionResult(val ok: Boolean, val detail: String)
 
+/**
+ * A file the user attached to a chat turn before sending. Text attachments
+ * contribute their content to the model prompt; image attachments contribute
+ * either vision bytes (when the model supports it) or a plain-text note.
+ */
+data class ChatAttachment(
+    val displayName: String,
+    val mimeType: String?,
+    /** UTF-8 text for text/code files; null for binary/image attachments. */
+    val textContent: String? = null,
+    /** Raw base64 (no data-URI prefix) for image attachments; null otherwise. */
+    val imageBase64: String? = null,
+) {
+    val isImage: Boolean
+        get() = mimeType?.startsWith("image/") == true || imageBase64 != null
+}
+
 data class TurnRequest(
     val repoKey: String,
     val owner: String,
@@ -102,6 +119,7 @@ data class TurnRequest(
     val workingBranch: String?,
     val sessionId: String,
     val userText: String,
+    val attachment: ChatAttachment? = null,
 )
 
 /** Progress events emitted while an AI turn runs. */

@@ -88,7 +88,7 @@ nothing is hardcoded in build scripts.
    test suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
    `:app:testDebugUnitTest`) and uploads the debug APK as an artifact.
 2. **Auto-merge into `main`** — once the working branch
-   (`arena/01a04c9a-ai-cloud`) is **green**, a second job automatically merges
+   (`arena/01a04eb6-ai-cloud`) is **green**, a second job automatically merges
    it into `main` with a merge commit (`--no-ff`) and pushes. No manual push is
    needed, and `main` can never receive a red commit because the merge job
    only runs after the build job succeeds. Pushing to `main` does not

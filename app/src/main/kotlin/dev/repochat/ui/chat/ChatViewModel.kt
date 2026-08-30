@@ -8,6 +8,7 @@ import dev.repochat.core.domain.AiTurnRunner
 import dev.repochat.core.domain.ChatRepository
 import dev.repochat.core.domain.CreatePullRequestUseCase
 import dev.repochat.core.model.AppError
+import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
 import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PendingChange
@@ -39,6 +40,17 @@ sealed interface PrState {
     data class Failed(val message: String) : PrState
 }
 
+/**
+ * Lightweight preview of a file the user picked but has not yet sent.
+ * The heavy content (text / base64) is loaded only at send time.
+ */
+data class PendingAttachment(
+    val uriString: String,
+    val displayName: String,
+    val mimeType: String?,
+    val isImage: Boolean,
+)
+
 data class ChatUiState(
     val session: RepoSession? = null,
     val messages: List<ChatMessage> = emptyList(),
@@ -53,6 +65,7 @@ data class ChatUiState(
     val canRetry: Boolean = false,
     val snackbar: SnackbarEvent = SnackbarEvent(),
     val prState: PrState = PrState.None,
+    val pendingAttachment: PendingAttachment? = null,
 )
 
 @HiltViewModel
@@ -70,6 +83,7 @@ class ChatViewModel @Inject constructor(
     private var repoKey: String = ""
     private var defaultBranch: String = ""
     private var lastUserInput: String? = null
+    private var lastAttachment: ChatAttachment? = null
 
     private var messageJob: Job? = null
     private var snackbarCounter = 0L
@@ -85,6 +99,7 @@ class ChatViewModel @Inject constructor(
         this.repoKey = key
         this.defaultBranch = defaultBranch
         this.lastUserInput = null
+        this.lastAttachment = null
         _uiState.value = ChatUiState()
 
         viewModelScope.launch { chatRepository.ensureSession(owner, repo, defaultBranch) }
@@ -103,26 +118,46 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun send(text: String) = sendInternal(text, resend = false)
+    fun setPendingAttachment(attachment: PendingAttachment?) {
+        _uiState.update { it.copy(pendingAttachment = attachment) }
+    }
+
+    fun clearPendingAttachment() = setPendingAttachment(null)
+
+    fun send(text: String, attachment: ChatAttachment? = null) =
+        sendInternal(text, attachment, resend = false)
 
     fun retry() {
         // Re-runs the previous turn without appending a duplicate user bubble.
-        lastUserInput?.let { sendInternal(it, resend = true) }
+        lastUserInput?.let { sendInternal(it, lastAttachment, resend = true) }
     }
 
-    private fun sendInternal(text: String, resend: Boolean) {
+    private fun sendInternal(text: String, attachment: ChatAttachment?, resend: Boolean) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty() && attachment == null) return
         val session = _uiState.value.session ?: return
         val state = _uiState.value
         if (state.typing || state.approvalPending || state.approving) return
 
-        lastUserInput = trimmed
+        // Bubble shown to the user: plain text + a short attachment note (not the full file body).
+        val displayText = buildString {
+            if (attachment != null) {
+                append("📎 ").append(attachment.displayName)
+                if (trimmed.isNotEmpty()) append('\n')
+            }
+            append(trimmed)
+        }.ifBlank { "📎 ${attachment?.displayName.orEmpty()}" }
+
+        lastUserInput = trimmed.ifEmpty { displayText }
+        lastAttachment = attachment
+        _uiState.update { it.copy(pendingAttachment = null) }
+
         viewModelScope.launch {
             if (!resend) {
-                chatRepository.appendUserText(repoKey, session.sessionId, trimmed)
+                chatRepository.appendUserText(repoKey, session.sessionId, displayText)
             }
-            runTurn(trimmed, session)
+            // Orchestrator gets the user's typed text; attachment is applied separately.
+            runTurn(trimmed.ifEmpty { displayText }, session, attachment)
         }
     }
 
@@ -158,7 +193,9 @@ class ChatViewModel @Inject constructor(
             } catch (e: AppError) {
                 PrState.Failed(e.userMessage)
             } catch (e: Exception) {
-                PrState.Failed(e.message ?: "Could not create the pull request.")
+                PrState.Failed(
+                    e.message?.takeIf { it.isNotBlank() } ?: "Could not create the pull request.",
+                )
             }
             _uiState.update { it.copy(prState = newState) }
         }
@@ -184,7 +221,11 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(snackbar = SnackbarEvent(snackbarCounter, textRes, args.toList())) }
     }
 
-    private fun runTurn(userText: String, session: RepoSession) {
+    private fun runTurn(
+        userText: String,
+        session: RepoSession,
+        attachment: ChatAttachment? = null,
+    ) {
         _uiState.update {
             it.copy(
                 typing = true,
@@ -204,6 +245,7 @@ class ChatViewModel @Inject constructor(
             workingBranch = session.workingBranch,
             sessionId = session.sessionId,
             userText = userText,
+            attachment = attachment,
         )
         viewModelScope.launch {
             turnRunner.runTurn(request, approvalFlow).collect { event ->

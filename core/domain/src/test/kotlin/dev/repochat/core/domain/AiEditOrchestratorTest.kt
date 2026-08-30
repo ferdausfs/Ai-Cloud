@@ -126,4 +126,69 @@ class AiEditOrchestratorTest {
         assertTrue(error is AppError.RateLimited)
         assertEquals(AppError.Provider.OLLAMA, (error as AppError.RateLimited).provider)
     }
+
+    @Test
+    fun `text attachment is prepended to the user turn`() = runTest {
+        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"got it"}""")))
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(),
+        )
+        val req = request().copy(
+            userText = "please review",
+            attachment = dev.repochat.core.model.ChatAttachment(
+                displayName = "notes.txt",
+                mimeType = "text/plain",
+                textContent = "secret sauce",
+            ),
+        )
+        orchestrator.runTurn(req, MutableSharedFlow()).toList()
+        val userMsg = ollama.lastMessages.first { it.role == dev.repochat.core.model.OllamaRole.USER }
+        assertTrue(userMsg.content.contains("ATTACHED FILE - notes.txt:"))
+        assertTrue(userMsg.content.contains("secret sauce"))
+        assertTrue(userMsg.content.contains("please review"))
+        assertNull(userMsg.images)
+    }
+
+    @Test
+    fun `image attachment omits bytes when model lacks vision`() = runTest {
+        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"no vision"}""")))
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), FakeChatRepository(),
+            FakeSettingsRepository(AppSettings(modelName = "gpt-oss:120b-cloud")),
+        )
+        val req = request().copy(
+            userText = "what is this?",
+            attachment = dev.repochat.core.model.ChatAttachment(
+                displayName = "shot.png",
+                mimeType = "image/png",
+                imageBase64 = "aGVsbG8=",
+            ),
+        )
+        orchestrator.runTurn(req, MutableSharedFlow()).toList()
+        val userMsg = ollama.lastMessages.first { it.role == dev.repochat.core.model.OllamaRole.USER }
+        assertTrue(userMsg.content.contains("ATTACHED IMAGE - shot.png"))
+        assertTrue(userMsg.content.contains("does not support vision"))
+        assertNull(userMsg.images)
+    }
+
+    @Test
+    fun `image attachment includes bytes for vision models`() = runTest {
+        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"i see it"}""")))
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), FakeChatRepository(),
+            FakeSettingsRepository(AppSettings(modelName = "llava:13b")),
+        )
+        val req = request().copy(
+            userText = "describe",
+            attachment = dev.repochat.core.model.ChatAttachment(
+                displayName = "shot.png",
+                mimeType = "image/png",
+                imageBase64 = "aGVsbG8=",
+            ),
+        )
+        orchestrator.runTurn(req, MutableSharedFlow()).toList()
+        val userMsg = ollama.lastMessages.first { it.role == dev.repochat.core.model.OllamaRole.USER }
+        assertEquals(listOf("aGVsbG8="), userMsg.images)
+        assertTrue(userMsg.content.contains("vision model"))
+    }
 }
