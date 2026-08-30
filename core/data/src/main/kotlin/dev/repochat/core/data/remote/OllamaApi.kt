@@ -38,3 +38,7 @@ data class OllamaChatResponseDto(
     val response: String? = null,
     val error: String? = null,
 )
+
+/** Ollama error bodies use `{"error": "..."}` (not GitHub's `{"message": "..."}`). */
+@Serializable
+data class OllamaErrorDto(val error: String? = null)
