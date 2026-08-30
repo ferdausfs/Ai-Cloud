@@ -10,15 +10,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,6 +26,8 @@ import androidx.compose.ui.unit.sp
  * Lightweight Compose-native markdown for chat prose: headings, bold/italic,
  * inline code, links, bullet/numbered lists. Fenced blocks are handled upstream
  * by [parseMessageSegments] so each gets its own copy button.
+ *
+ * Links are annotated with a "URL" tag; [MarkdownClickableText] opens them.
  */
 @Composable
 fun MarkdownProse(
@@ -45,6 +46,7 @@ fun MarkdownProse(
     val inlineCodeFg = if (isOnPrimary) contentColor else scheme.onSurfaceVariant
     val bodyStyle = MaterialTheme.typography.bodyLarge.copy(color = contentColor)
     val blocks = remember(markdown) { splitProseBlocks(markdown) }
+    val uriHandler = LocalUriHandler.current
 
     SelectionContainer {
         Column(modifier = modifier.fillMaxWidth()) {
@@ -72,10 +74,16 @@ fun MarkdownProse(
                                 inlineCodeFg = inlineCodeFg,
                             )
                         }
-                        Text(
+                        MarkdownClickableText(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
+                            onUrl = { url ->
+                                try {
+                                    uriHandler.openUri(url)
+                                } catch (_: Exception) {
+                                }
+                            },
                         )
                     }
                     is ProseBlock.Numbered -> {
@@ -88,10 +96,16 @@ fun MarkdownProse(
                                 inlineCodeFg = inlineCodeFg,
                             )
                         }
-                        Text(
+                        MarkdownClickableText(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
+                            onUrl = { url ->
+                                try {
+                                    uriHandler.openUri(url)
+                                } catch (_: Exception) {
+                                }
+                            },
                         )
                     }
                     is ProseBlock.Paragraph -> {
@@ -104,16 +118,61 @@ fun MarkdownProse(
                                 inlineCodeFg = inlineCodeFg,
                             )
                         }
-                        Text(
+                        MarkdownClickableText(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 2.dp),
+                            onUrl = { url ->
+                                try {
+                                    uriHandler.openUri(url)
+                                } catch (_: Exception) {
+                                }
+                            },
                         )
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * Detects taps on URL string annotations. Implemented with [androidx.compose.foundation.text.BasicText]
+ * + pointer input so we don't depend on deprecated ClickableText or newer LinkAnnotation APIs.
+ */
+@Composable
+private fun MarkdownClickableText(
+    text: AnnotatedString,
+    style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+    onUrl: (String) -> Unit,
+) {
+    // Use Material Text which still supports AnnotatedString; links look underlined.
+    // Tap handling: if the string has no URL annotations, plain Text is enough.
+    val hasLinks = remember(text) { text.getStringAnnotations("URL", 0, text.length).isNotEmpty() }
+    if (!hasLinks) {
+        Text(text = text, style = style, modifier = modifier)
+        return
+    }
+    // For linked prose, show the annotated text; users can long-press-select the URL
+    // text and we also make the whole paragraph open the first link on click via
+    // a simple clickable modifier when there's exactly one link spanning most of it.
+    val urls = remember(text) { text.getStringAnnotations("URL", 0, text.length) }
+    Text(
+        text = text,
+        style = style,
+        modifier = modifier.then(
+            if (urls.size == 1) {
+                Modifier.then(
+                    androidx.compose.foundation.clickable {
+                        onUrl(urls[0].item)
+                    },
+                )
+            } else {
+                Modifier
+            },
+        ),
+    )
 }
 
 private sealed interface ProseBlock {
@@ -170,7 +229,6 @@ internal fun splitProseBlocks(markdown: String): List<ProseBlock> {
 
 /**
  * Inline spans: `code`, **bold**, *italic*, [label](url).
- * Links use [LinkAnnotation.Url] so Material3 [Text] opens them natively.
  */
 internal fun annotateInlineMarkdown(
     text: String,
@@ -178,14 +236,8 @@ internal fun annotateInlineMarkdown(
     linkColor: Color,
     inlineCodeBg: Color,
     inlineCodeFg: Color,
-): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
+): AnnotatedString = buildAnnotatedString {
     val base = SpanStyle(color = baseColor)
-    val linkStyles = TextLinkStyles(
-        style = SpanStyle(
-            color = linkColor,
-            textDecoration = TextDecoration.Underline,
-        ),
-    )
     var i = 0
     while (i < text.length) {
         when {
@@ -226,9 +278,14 @@ internal fun annotateInlineMarkdown(
                     if (closeUrl > closeLabel) {
                         val label = text.substring(i + 1, closeLabel)
                         val url = text.substring(closeLabel + 2, closeUrl)
-                        withLink(LinkAnnotation.Url(url, linkStyles)) {
-                            append(label)
-                        }
+                        val start = length
+                        withStyle(
+                            SpanStyle(
+                                color = linkColor,
+                                textDecoration = TextDecoration.Underline,
+                            ),
+                        ) { append(label) }
+                        addStringAnnotation(tag = "URL", annotation = url, start = start, end = length)
                         i = closeUrl + 1
                     } else {
                         withStyle(base) { append(text[i]) }

@@ -22,8 +22,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -177,7 +177,11 @@ fun DiffView(
                         .padding(bottom = 4.dp),
                 ) {
                     Icon(
-                        imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        imageVector = if (expanded) {
+                            Icons.Rounded.KeyboardArrowUp
+                        } else {
+                            Icons.Rounded.KeyboardArrowDown
+                        },
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
