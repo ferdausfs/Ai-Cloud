@@ -76,11 +76,13 @@ class AiEditOrchestrator @Inject constructor(
 
         val visionSupported = PromptBuilder.modelSupportsVision(model)
         val attachment = request.attachment
+        val attachedText = attachment?.textContent
+        val attachedImageB64 = attachment?.imageBase64
         val taskText = buildString {
             when {
                 attachment == null -> Unit
-                !attachment.textContent.isNullOrEmpty() -> {
-                    append(PromptBuilder.attachedFileMessage(attachment.displayName, attachment.textContent))
+                !attachedText.isNullOrEmpty() -> {
+                    append(PromptBuilder.attachedFileMessage(attachment.displayName, attachedText))
                     append("\n\n")
                 }
                 attachment.isImage -> {
@@ -90,8 +92,7 @@ class AiEditOrchestrator @Inject constructor(
             }
             append(request.userText)
         }
-        val userImages = attachment
-            ?.imageBase64
+        val userImages = attachedImageB64
             ?.takeIf { visionSupported && it.isNotBlank() }
             ?.let { listOf(it) }
 

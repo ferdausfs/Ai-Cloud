@@ -749,14 +749,19 @@ private fun AttachmentChip(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val thumb = remember(attachment.uriString) {
-        if (!attachment.isImage) return@remember null
-        runCatching {
-            context.contentResolver.openInputStream(Uri.parse(attachment.uriString))?.use { stream ->
-                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                BitmapFactory.decodeStream(stream, null, opts)?.asImageBitmap()
+    val thumb: androidx.compose.ui.graphics.ImageBitmap? = remember(attachment.uriString, attachment.isImage) {
+        if (!attachment.isImage) {
+            null
+        } else {
+            try {
+                context.contentResolver.openInputStream(Uri.parse(attachment.uriString))?.use { stream ->
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    BitmapFactory.decodeStream(stream, null, opts)?.asImageBitmap()
+                }
+            } catch (_: Exception) {
+                null
             }
-        }.getOrNull()
+        }
     }
 
     Surface(
@@ -772,9 +777,10 @@ private fun AttachmentChip(
                 .widthIn(max = 280.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (thumb != null) {
+            val imageBitmap = thumb
+            if (imageBitmap != null) {
                 Image(
-                    bitmap = thumb,
+                    bitmap = imageBitmap,
                     contentDescription = null,
                     modifier = Modifier
                         .size(36.dp)
