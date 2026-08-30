@@ -9,11 +9,12 @@ import dev.repochat.core.model.WorkflowRunInfo
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -23,6 +24,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * [GithubService] for run/job/log polling. Writes are auto-approved so the loop
  * can finish without the user babysitting every diff — the user opted in via
  * the chat "Auto-fix until CI passes" toggle.
+ *
+ * Implemented with [channelFlow] so nested turn collection can [send] events
+ * (plain [kotlinx.coroutines.flow.flow] `emit` is a restricted suspension and
+ * cannot be called from a nested `collect`).
  *
  * Must run under [dev.repochat.turn.AiTurnCoordinator] + FGS; CI can take minutes.
  */
@@ -43,13 +48,11 @@ class AutoFixLoop @Inject constructor(
     fun run(
         request: TurnRequest,
         maxAttempts: Int = request.autoFixMaxAttempts.coerceIn(1, 10),
-    ): Flow<TurnEvent> = flow {
+    ): Flow<TurnEvent> = channelFlow {
         val history = mutableListOf<String>()
         var prompt = request.userText
         var lastLog: String? = null
         var attempt = 0
-        // Seed: ignore runs that already finished before this loop started so we
-        // don't treat a stale green/red as the result of the next commit.
         var baselineRunId: Long? = null
         try {
             val branchHint = request.workingBranch
@@ -67,10 +70,9 @@ class AutoFixLoop @Inject constructor(
 
         while (attempt < maxAttempts) {
             attempt++
-            emit(TurnEvent.AutoFixProgress(AutoFixEvent.AttemptStarted(attempt, maxAttempts)))
+            send(TurnEvent.AutoFixProgress(AutoFixEvent.AttemptStarted(attempt, maxAttempts)))
             postStatus(request, formatAttemptStarted(attempt, maxAttempts))
 
-            // Auto-approve every write_file so the loop stays autonomous.
             val approval = MutableSharedFlow<Boolean>(extraBufferCapacity = 4)
             val attemptRequest = request.copy(userText = prompt, autoFixUntilCiGreen = false)
             var committedSummary: String? = null
@@ -81,15 +83,14 @@ class AutoFixLoop @Inject constructor(
             turnRunner.runTurn(attemptRequest, approval).collect { event ->
                 when (event) {
                     is TurnEvent.ProposeWrite -> {
-                        // Surface the diff UI, then approve immediately.
-                        emit(event)
+                        send(event)
                         approval.tryEmit(true)
                     }
                     is TurnEvent.WriteCommitted -> {
                         committedSummary = "${event.change.path}: ${event.change.commitMessage}"
                         workingBranch = event.change.branch
-                        emit(event)
-                        emit(
+                        send(event)
+                        send(
                             TurnEvent.AutoFixProgress(
                                 AutoFixEvent.Committed(attempt, committedSummary!!),
                             ),
@@ -102,36 +103,32 @@ class AutoFixLoop @Inject constructor(
                     }
                     is TurnEvent.WriteDeclined -> {
                         userDeclined = true
-                        emit(event)
+                        send(event)
                     }
                     is TurnEvent.Error -> {
                         turnError = event.error
-                        emit(event)
+                        send(event)
                     }
-                    is TurnEvent.Reply -> {
-                        // Model answered without a write — keep the reply visible,
-                        // but if we never committed we can't wait on CI for this attempt.
-                        emit(event)
-                    }
+                    is TurnEvent.Reply -> send(event)
                     is TurnEvent.Working,
                     is TurnEvent.TreeReady,
                     is TurnEvent.ReadingFile,
                     is TurnEvent.PullRequestCreated,
                     is TurnEvent.CiStatus,
                     is TurnEvent.AutoFixProgress,
-                    -> emit(event)
+                    -> send(event)
                 }
             }
 
             if (userDeclined) {
                 val msg = "Auto-fix stopped — a change was declined."
                 postStatus(request, msg)
-                emit(
+                send(
                     TurnEvent.AutoFixProgress(
                         AutoFixEvent.GaveUp(attempt, history + msg, lastLog),
                     ),
                 )
-                return@flow
+                return@channelFlow
             }
 
             val err = turnError
@@ -139,15 +136,14 @@ class AutoFixLoop @Inject constructor(
                 history += "Attempt $attempt: turn error — ${err.userMessage}"
                 lastLog = err.userMessage
                 if (attempt >= maxAttempts) {
-                    emitGaveUp(request, attempt, history, lastLog)
-                    return@flow
+                    finishGaveUp(request, attempt, history, lastLog)
+                    return@channelFlow
                 }
                 prompt = buildFixPrompt(request.userText, history, err.userMessage)
                 continue
             }
 
             if (committedSummary == null) {
-                // Model replied without committing — stop rather than spinning.
                 history += "Attempt $attempt: model replied without a commit"
                 val summary = buildString {
                     append("I finished attempt $attempt/$maxAttempts without committing a change. ")
@@ -155,44 +151,46 @@ class AutoFixLoop @Inject constructor(
                     append("Want me to keep trying with a more specific instruction, or will you look at it?")
                 }
                 postStatus(request, summary)
-                emit(
+                send(
                     TurnEvent.AutoFixProgress(
                         AutoFixEvent.GaveUp(attempt, history, lastLog),
                     ),
                 )
-                emit(TurnEvent.Reply(summary))
-                return@flow
+                send(TurnEvent.Reply(summary))
+                return@channelFlow
             }
 
             history += "Attempt $attempt: committed $committedSummary"
             val branch = workingBranch ?: "ai-chat/${request.sessionId}"
 
-            // ---- Poll CI -------------------------------------------------
-            emit(TurnEvent.Working("Waiting on CI (attempt $attempt/$maxAttempts)"))
-            emit(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, null)))
+            send(TurnEvent.Working("Waiting on CI (attempt $attempt/$maxAttempts)"))
+            send(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, null)))
 
+            // Capture ProducerScope for nested wait ticks (send is not restricted).
+            val scope: ProducerScope<TurnEvent> = this
             val run = waitForCi(
                 owner = request.owner,
                 repo = request.repo,
                 branch = branch,
                 baselineRunId = baselineRunId,
-            ) { latest ->
-                emit(TurnEvent.CiStatus(latest))
-                emit(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, latest)))
-                emit(
-                    TurnEvent.Working(
-                        "CI ${latest?.status ?: "pending"} (attempt $attempt/$maxAttempts)",
-                    ),
-                )
-            }
+                onTick = { latest ->
+                    scope.send(TurnEvent.CiStatus(latest))
+                    scope.send(TurnEvent.AutoFixProgress(AutoFixEvent.CiPending(attempt, latest)))
+                    scope.send(
+                        TurnEvent.Working(
+                            "CI ${latest?.status ?: "pending"} (attempt $attempt/$maxAttempts)",
+                        ),
+                    )
+                },
+            )
 
             if (run == null) {
                 val note = "No CI run appeared for `$branch` within the wait window."
                 history += "Attempt $attempt: $note"
                 lastLog = note
                 if (attempt >= maxAttempts) {
-                    emitGaveUp(request, attempt, history, lastLog)
-                    return@flow
+                    finishGaveUp(request, attempt, history, lastLog)
+                    return@channelFlow
                 }
                 prompt = buildFixPrompt(
                     originalTask = request.userText,
@@ -204,11 +202,11 @@ class AutoFixLoop @Inject constructor(
             }
 
             baselineRunId = run.id
-            emit(TurnEvent.CiStatus(run))
+            send(TurnEvent.CiStatus(run))
 
             when (run.conclusion) {
                 "success" -> {
-                    emit(TurnEvent.AutoFixProgress(AutoFixEvent.CiPassed(attempt, run)))
+                    send(TurnEvent.AutoFixProgress(AutoFixEvent.CiPassed(attempt, run)))
                     val msg = buildString {
                         append("✅ CI is green on attempt $attempt/$maxAttempts. ")
                         append(run.summarize())
@@ -216,22 +214,21 @@ class AutoFixLoop @Inject constructor(
                         append("\n\nOriginal task: ${request.userText}")
                     }
                     postStatus(request, msg)
-                    emit(TurnEvent.Reply(msg))
-                    return@flow
+                    send(TurnEvent.Reply(msg))
+                    return@channelFlow
                 }
                 "cancelled", "skipped" -> {
                     val note = "CI ${run.conclusion} on attempt $attempt."
                     history += note
                     lastLog = note
                     if (attempt >= maxAttempts) {
-                        emitGaveUp(request, attempt, history, lastLog)
-                        return@flow
+                        finishGaveUp(request, attempt, history, lastLog)
+                        return@channelFlow
                     }
                     prompt = buildFixPrompt(request.userText, history, note)
                     continue
                 }
                 else -> {
-                    // failure (or unexpected conclusion) — pull real logs.
                     val excerpt = fetchFailureLog(
                         owner = request.owner,
                         repo = request.repo,
@@ -239,7 +236,7 @@ class AutoFixLoop @Inject constructor(
                     )
                     lastLog = excerpt
                     history += "Attempt $attempt: CI failed — ${shortReason(excerpt)}"
-                    emit(
+                    send(
                         TurnEvent.AutoFixProgress(
                             AutoFixEvent.CiFailed(attempt, run, excerpt),
                         ),
@@ -250,15 +247,15 @@ class AutoFixLoop @Inject constructor(
                             "```\n${excerpt.take(1_500)}\n```",
                     )
                     if (attempt >= maxAttempts) {
-                        emitGaveUp(request, attempt, history, lastLog)
-                        return@flow
+                        finishGaveUp(request, attempt, history, lastLog)
+                        return@channelFlow
                     }
                     prompt = buildFixPrompt(request.userText, history, excerpt)
                 }
             }
         }
 
-        emitGaveUp(request, attempt, history, lastLog)
+        finishGaveUp(request, attempt, history, lastLog)
     }.catch { error ->
         if (error is CancellationException) throw error
         val appError = when (error) {
@@ -271,30 +268,26 @@ class AutoFixLoop @Inject constructor(
         emit(TurnEvent.Error(appError))
     }
 
-    private suspend fun kotlinx.coroutines.flow.FlowCollector<TurnEvent>.emitGaveUp(
+    private suspend fun ProducerScope<TurnEvent>.finishGaveUp(
         request: TurnRequest,
         attemptsMade: Int,
         history: List<String>,
         lastLog: String?,
     ) {
-        emit(
+        send(
             TurnEvent.AutoFixProgress(
                 AutoFixEvent.GaveUp(attemptsMade, history.toList(), lastLog),
             ),
         )
         val summary = buildGaveUpMessage(request.userText, attemptsMade, history, lastLog)
         postStatus(request, summary)
-        emit(TurnEvent.Reply(summary))
+        send(TurnEvent.Reply(summary))
     }
 
     private suspend fun postStatus(request: TurnRequest, text: String) {
         chat.appendAiText(request.repoKey, request.sessionId, text)
     }
 
-    /**
-     * Poll [GithubService.listWorkflowRuns] until a run newer than [baselineRunId]
-     * reaches a terminal conclusion, or the overall wait budget is spent.
-     */
     private suspend fun waitForCi(
         owner: String,
         repo: String,
@@ -317,7 +310,6 @@ class AutoFixLoop @Inject constructor(
             } catch (_: Exception) {
                 emptyList()
             }
-            // Prefer a run newer than the baseline.
             candidate = runs.firstOrNull { baselineRunId == null || it.id != baselineRunId }
                 ?: runs.firstOrNull()
             if (candidate != null && candidate.id == baselineRunId) {
@@ -339,10 +331,6 @@ class AutoFixLoop @Inject constructor(
         }
     }
 
-    /**
-     * Fetch jobs for [run], pick a failed job, download its log, truncate to
-     * the last [LOG_EXCERPT_CHARS] characters (errors live near the end).
-     */
     private suspend fun fetchFailureLog(
         owner: String,
         repo: String,
@@ -377,7 +365,6 @@ class AutoFixLoop @Inject constructor(
         }
 
         val rawLog = try {
-            // Logs can take a few seconds to become available after conclusion.
             withTimeoutOrNull((logRetryDelayMs * 8).coerceAtLeast(1_000L)) {
                 var text: String? = null
                 repeat(4) { i ->
@@ -417,9 +404,8 @@ class AutoFixLoop @Inject constructor(
 
     companion object {
         const val DEFAULT_MAX_ATTEMPTS = 5
-        /** Tail of the job log fed back to the model (errors sit at the end). */
         const val LOG_EXCERPT_CHARS = 8_000
-        private const val CI_WAIT_BUDGET_MS = 12 * 60 * 1_000L // ~12 minutes
+        private const val CI_WAIT_BUDGET_MS = 12 * 60 * 1_000L
         private const val CI_POLL_INITIAL_MS = 15_000L
         private const val CI_POLL_MAX_MS = 45_000L
         private const val CI_MAX_POLLS = 40
