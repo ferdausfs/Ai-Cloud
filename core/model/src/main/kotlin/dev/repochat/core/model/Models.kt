@@ -17,6 +17,7 @@ data class RepoSummary(
     val updatedAtMillis: Long?,
     val defaultBranch: String,
     val htmlUrl: String,
+    val stargazersCount: Int = 0,
 ) {
     val owner: String get() = fullName.substringBefore('/')
 }
@@ -29,9 +30,13 @@ data class ActiveRepo(
     val selectedAt: Long,
 )
 
+/** Whether a conversation is free-form or tied to a GitHub repository. */
+enum class ChatMode { GENERAL, REPO }
+
 /**
- * One AI editing session per repository. The session id names the working
- * branch (`ai-chat/{sessionId}`) that all AI commits go to — never main.
+ * One AI conversation. Repo-mode sessions also name the working branch
+ * (`ai-chat/{sessionId}`) that all AI commits go to — never main.
+ * General-mode sessions have empty owner/repo and no GitHub tools.
  */
 data class RepoSession(
     val repoKey: String,
@@ -40,6 +45,22 @@ data class RepoSession(
     val defaultBranch: String,
     val sessionId: String,
     val workingBranch: String?,
+    val mode: ChatMode = ChatMode.REPO,
+    /** Short list title (first user message, truncated). */
+    val title: String? = null,
+    val updatedAt: Long = 0L,
+) {
+    val isGeneral: Boolean get() = mode == ChatMode.GENERAL
+    val displayTitle: String
+        get() = title?.takeIf { it.isNotBlank() }
+            ?: if (isGeneral) "General chat" else "$owner/$repo"
+}
+
+/** Row for the Chats home list (Claude.ai-style). */
+data class ConversationSummary(
+    val session: RepoSession,
+    val lastMessagePreview: String?,
+    val lastMessageAt: Long,
 )
 
 data class GitFile(
@@ -171,6 +192,7 @@ data class TurnRequest(
     val sessionId: String,
     val userText: String,
     val attachment: ChatAttachment? = null,
+    val mode: ChatMode = ChatMode.REPO,
     /**
      * When true, [dev.repochat.core.domain.AutoFixLoop] runs after the first
      * successful commit: poll CI, fetch failure logs, and re-prompt the model
@@ -178,7 +200,9 @@ data class TurnRequest(
      */
     val autoFixUntilCiGreen: Boolean = false,
     val autoFixMaxAttempts: Int = 5,
-)
+) {
+    val isGeneral: Boolean get() = mode == ChatMode.GENERAL
+}
 
 /** Progress events emitted while an AI turn runs. */
 sealed interface TurnEvent {
