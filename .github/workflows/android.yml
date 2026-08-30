@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: ["arena/01a04c9a-ai-cloud"]
+    branches: ["arena/01a04eb6-ai-cloud"]
   pull_request:
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
   merge-to-main:
     name: Auto-merge into main when green
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a04c9a-ai-cloud'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a04eb6-ai-cloud'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
