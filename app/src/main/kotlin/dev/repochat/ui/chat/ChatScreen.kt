@@ -129,6 +129,8 @@ fun ChatScreen(
     owner: String,
     repo: String,
     defaultBranch: String,
+    mode: String = "REPO",
+    repoKey: String = "",
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onBack: () -> Unit,
@@ -139,14 +141,27 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val isGeneral = mode.equals("GENERAL", ignoreCase = true) ||
+        state.session?.isGeneral == true
 
     var input by rememberSaveable { mutableStateOf("") }
     var showBranchInfo by rememberSaveable { mutableStateOf(false) }
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
     var showMenu by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(owner, repo, defaultBranch) {
-        viewModel.start(owner, repo, defaultBranch)
+    LaunchedEffect(owner, repo, defaultBranch, mode, repoKey) {
+        val chatMode = if (mode.equals("GENERAL", ignoreCase = true)) {
+            dev.repochat.core.model.ChatMode.GENERAL
+        } else {
+            dev.repochat.core.model.ChatMode.REPO
+        }
+        viewModel.start(
+            owner = owner,
+            repo = repo,
+            defaultBranch = defaultBranch,
+            mode = chatMode,
+            existingRepoKey = repoKey,
+        )
     }
 
     // Resolved during composition so the effects/lambdas below never call
@@ -217,21 +232,39 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        val titleText = when {
+                            isGeneral -> session?.displayTitle
+                                ?: stringResource(R.string.chat_general_title)
+                            else -> "$owner/$repo"
+                        }
                         with(sharedTransitionScope) {
+                            // remember* must run unconditionally (Compose rules).
+                            val sharedKey = if (owner.isNotBlank() && repo.isNotBlank()) {
+                                "repo-$owner/$repo"
+                            } else {
+                                "chat-general"
+                            }
+                            val sharedState = rememberSharedContentState(key = sharedKey)
                             Text(
-                                text = "$owner/$repo",
+                                text = titleText,
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .weight(1f, fill = false)
-                                    .sharedElement(
-                                        state = rememberSharedContentState(key = "repo-$owner/$repo"),
-                                        animatedVisibilityScope = animatedVisibilityScope,
+                                    .then(
+                                        if (!isGeneral && owner.isNotBlank()) {
+                                            Modifier.sharedElement(
+                                                state = sharedState,
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
                                     ),
                             )
                         }
-                        if (workingBranch != null) {
+                        if (!isGeneral && workingBranch != null) {
                             Spacer(Modifier.width(8.dp))
                             InfoChip(
                                 text = workingBranch,
@@ -241,26 +274,28 @@ fun ChatScreen(
                                 modifier = Modifier.bounce { showBranchInfo = true },
                             )
                         }
-                        state.ciStatus?.let { ci ->
-                            Spacer(Modifier.width(6.dp))
-                            val (icon, container, content) = ciChipColors(ci.conclusion, ci.status)
-                            InfoChip(
-                                text = ci.chipLabel(),
-                                icon = icon,
-                                containerColor = container,
-                                contentColor = content,
-                                modifier = Modifier.bounce {
-                                    ci.htmlUrl?.let { url ->
-                                        try {
-                                            context.startActivity(
-                                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                            )
-                                        } catch (_: Exception) {
-                                            // No browser — ignore.
+                        if (!isGeneral) {
+                            state.ciStatus?.let { ci ->
+                                Spacer(Modifier.width(6.dp))
+                                val (icon, container, content) = ciChipColors(ci.conclusion, ci.status)
+                                InfoChip(
+                                    text = ci.chipLabel(),
+                                    icon = icon,
+                                    containerColor = container,
+                                    contentColor = content,
+                                    modifier = Modifier.bounce {
+                                        ci.htmlUrl?.let { url ->
+                                            try {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                )
+                                            } catch (_: Exception) {
+                                                // No browser — ignore.
+                                            }
                                         }
-                                    }
-                                },
-                            )
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -273,7 +308,7 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    if (session != null && session.workingBranch != null) {
+                    if (!isGeneral && session != null && session.workingBranch != null) {
                         IconButton(
                             onClick = viewModel::createPullRequestNow,
                             enabled = state.prState != PrState.Creating,
@@ -349,6 +384,7 @@ fun ChatScreen(
 
             if (state.messages.isEmpty() && !state.typing) {
                 EmptyChat(
+                    isGeneral = isGeneral,
                     onSuggestion = { viewModel.send(it) },
                     modifier = Modifier.weight(1f),
                 )
@@ -392,9 +428,15 @@ fun ChatScreen(
                 onInputChange = { input = it },
                 canSend = canSend,
                 pendingAttachment = state.pendingAttachment,
+                showAutoFix = !isGeneral,
                 autoFixUntilCiGreen = state.autoFixUntilCiGreen,
                 autoFixActive = state.autoFixActive,
                 onAutoFixChange = viewModel::setAutoFixUntilCiGreen,
+                inputHint = if (isGeneral) {
+                    stringResource(R.string.chat_input_hint_general)
+                } else {
+                    stringResource(R.string.chat_input_hint)
+                },
                 onAttach = {
                     pickFile.launch(
                         arrayOf(
@@ -470,7 +512,14 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text(stringResource(R.string.chat_clear_confirm_title)) },
-            text = { Text(stringResource(R.string.chat_clear_confirm_body)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (isGeneral) R.string.chat_clear_confirm_body_general
+                        else R.string.chat_clear_confirm_body,
+                    ),
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -525,11 +574,18 @@ fun ChatScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun EmptyChat(
+    isGeneral: Boolean,
+    onSuggestion: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val fixLabel = stringResource(R.string.chat_suggest_fix)
     val explainLabel = stringResource(R.string.chat_suggest_explain)
     val testLabel = stringResource(R.string.chat_suggest_test)
     val readmeLabel = stringResource(R.string.chat_suggest_readme)
+    val generalExplain = stringResource(R.string.chat_suggest_general_explain)
+    val generalCode = stringResource(R.string.chat_suggest_general_code)
+    val generalDebug = stringResource(R.string.chat_suggest_general_debug)
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -537,8 +593,12 @@ private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modif
     ) {
         EmptyState(
             icon = Icons.Rounded.SmartToy,
-            title = stringResource(R.string.chat_empty_title),
-            body = stringResource(R.string.chat_empty_body),
+            title = stringResource(
+                if (isGeneral) R.string.chat_empty_title_general else R.string.chat_empty_title,
+            ),
+            body = stringResource(
+                if (isGeneral) R.string.chat_empty_body_general else R.string.chat_empty_body,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
         FlowRow(
@@ -548,26 +608,44 @@ private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modif
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SuggestionChip(
-                icon = Icons.Rounded.Bolt,
-                label = fixLabel,
-                onClick = { onSuggestion(fixLabel) },
-            )
-            SuggestionChip(
-                icon = Icons.Rounded.SmartToy,
-                label = explainLabel,
-                onClick = { onSuggestion(explainLabel) },
-            )
-            SuggestionChip(
-                icon = Icons.Rounded.Check,
-                label = testLabel,
-                onClick = { onSuggestion(testLabel) },
-            )
-            SuggestionChip(
-                icon = Icons.Rounded.Settings,
-                label = readmeLabel,
-                onClick = { onSuggestion(readmeLabel) },
-            )
+            if (isGeneral) {
+                SuggestionChip(
+                    icon = Icons.Rounded.SmartToy,
+                    label = generalExplain,
+                    onClick = { onSuggestion(generalExplain) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.Bolt,
+                    label = generalCode,
+                    onClick = { onSuggestion(generalCode) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.Check,
+                    label = generalDebug,
+                    onClick = { onSuggestion(generalDebug) },
+                )
+            } else {
+                SuggestionChip(
+                    icon = Icons.Rounded.Bolt,
+                    label = fixLabel,
+                    onClick = { onSuggestion(fixLabel) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.SmartToy,
+                    label = explainLabel,
+                    onClick = { onSuggestion(explainLabel) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.Check,
+                    label = testLabel,
+                    onClick = { onSuggestion(testLabel) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.Settings,
+                    label = readmeLabel,
+                    onClick = { onSuggestion(readmeLabel) },
+                )
+            }
         }
     }
 }
@@ -689,9 +767,11 @@ private fun BottomBar(
     onInputChange: (String) -> Unit,
     canSend: Boolean,
     pendingAttachment: PendingAttachment?,
+    showAutoFix: Boolean,
     autoFixUntilCiGreen: Boolean,
     autoFixActive: Boolean,
     onAutoFixChange: (Boolean) -> Unit,
+    inputHint: String,
     onAttach: () -> Unit,
     onRemoveAttachment: () -> Unit,
     onSend: () -> Unit,
@@ -759,28 +839,30 @@ private fun BottomBar(
                         )
                     }
                 }
-                // Opt-in auto-fix-until-CI-green for this message.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 4.dp),
-                ) {
-                    Checkbox(
-                        checked = autoFixUntilCiGreen,
-                        onCheckedChange = onAutoFixChange,
-                        enabled = !autoFixActive,
-                    )
-                    Text(
-                        text = stringResource(R.string.chat_auto_fix_ci),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (autoFixUntilCiGreen) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
+                // Opt-in auto-fix-until-CI-green for this message (repo mode only).
+                if (showAutoFix) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
+                    ) {
+                        Checkbox(
+                            checked = autoFixUntilCiGreen,
+                            onCheckedChange = onAutoFixChange,
+                            enabled = !autoFixActive,
+                        )
+                        Text(
+                            text = stringResource(R.string.chat_auto_fix_ci),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (autoFixUntilCiGreen) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
@@ -800,7 +882,7 @@ private fun BottomBar(
                     OutlinedTextField(
                         value = input,
                         onValueChange = onInputChange,
-                        placeholder = { Text(stringResource(R.string.chat_input_hint)) },
+                        placeholder = { Text(inputHint) },
                         modifier = Modifier.weight(1f),
                         shape = MaterialTheme.shapes.extraLarge,
                         maxLines = 4,

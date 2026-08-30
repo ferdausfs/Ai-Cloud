@@ -46,6 +46,19 @@ fun AppNavHost(
                 onBrowseRepos = {
                     navController.navigate(RepoPickerRoute) { launchSingleTop = true }
                 },
+                onOpenGeneralChat = {
+                    navController.navigate(
+                        ChatRoute(
+                            owner = "",
+                            repo = "",
+                            defaultBranch = "",
+                            mode = "GENERAL",
+                            repoKey = "",
+                        ),
+                    ) {
+                        launchSingleTop = true
+                    }
+                },
                 onResumeRepo = { owner, repo, defaultBranch ->
                     navController.navigate(
                         ChatRoute(
@@ -98,6 +111,8 @@ fun AppNavHost(
                 owner = route.owner,
                 repo = route.repo,
                 defaultBranch = route.defaultBranch,
+                mode = route.mode,
+                repoKey = route.repoKey,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = this,
                 onBack = { navController.popBackStack() },
