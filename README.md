@@ -136,3 +136,16 @@ add a manual battery-optimization / Autostart whitelist. Settings has a one-line
 tip and a button that opens this app’s system details page
 (`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`) so you can set battery to
 “No restrictions”.
+
+## Auto-fix until CI is green
+
+Chat has an opt-in checkbox **“Auto-fix until CI passes”**. When enabled, the
+send path runs `AutoFixLoop` under the same foreground service:
+
+1. One AI turn (read/write) — writes are auto-approved so the loop can run unattended
+2. Poll GitHub Actions on the working branch (~15s backoff, up to ~12 minutes)
+3. On failure: fetch the failed job’s real log (tail ~8k chars), re-prompt the model, commit again
+4. Stop on green, or after 5 attempts with an honest summary + next-step question
+
+Never claims success it didn’t achieve. Progress is written as chat bubbles and
+shown on the FGS notification (`Attempt 2/5 — CI failed, fixing…`).

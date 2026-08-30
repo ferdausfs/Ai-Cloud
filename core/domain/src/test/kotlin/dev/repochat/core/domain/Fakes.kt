@@ -15,6 +15,7 @@ import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSession
 import dev.repochat.core.model.RepoSummary
 import dev.repochat.core.model.TreeEntry
+import dev.repochat.core.model.WorkflowJobInfo
 import dev.repochat.core.model.WorkflowRunInfo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,8 +111,40 @@ class FakeGithubService : GithubService {
     ): List<WorkflowRunInfo> {
         failWith?.let { throw it }
         lastCiBranch = branch
+        // Allow tests to advance a scripted sequence of run lists per poll.
+        if (workflowRunSequence.isNotEmpty()) {
+            val next = workflowRunSequence.removeFirst()
+            workflowRuns = next
+        }
         return workflowRuns.take(perPage)
     }
+
+    override suspend fun listJobsForRun(
+        owner: String,
+        repo: String,
+        runId: Long,
+    ): List<WorkflowJobInfo> {
+        failWith?.let { throw it }
+        lastJobsRunId = runId
+        return jobsByRunId[runId].orEmpty()
+    }
+
+    override suspend fun getJobLogs(
+        owner: String,
+        repo: String,
+        jobId: Long,
+    ): String {
+        failWith?.let { throw it }
+        lastLogJobId = jobId
+        return jobLogs[jobId].orEmpty()
+    }
+
+    var lastJobsRunId: Long? = null
+    var lastLogJobId: Long? = null
+    val jobsByRunId = mutableMapOf<Long, List<WorkflowJobInfo>>()
+    val jobLogs = mutableMapOf<Long, String>()
+    /** FIFO of run lists returned by successive [listWorkflowRuns] polls. */
+    val workflowRunSequence = ArrayDeque<List<WorkflowRunInfo>>()
 }
 
 class FakeChatRepository(

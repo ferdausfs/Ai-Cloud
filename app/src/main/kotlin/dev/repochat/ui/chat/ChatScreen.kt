@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -391,6 +392,9 @@ fun ChatScreen(
                 onInputChange = { input = it },
                 canSend = canSend,
                 pendingAttachment = state.pendingAttachment,
+                autoFixUntilCiGreen = state.autoFixUntilCiGreen,
+                autoFixActive = state.autoFixActive,
+                onAutoFixChange = viewModel::setAutoFixUntilCiGreen,
                 onAttach = {
                     pickFile.launch(
                         arrayOf(
@@ -685,6 +689,9 @@ private fun BottomBar(
     onInputChange: (String) -> Unit,
     canSend: Boolean,
     pendingAttachment: PendingAttachment?,
+    autoFixUntilCiGreen: Boolean,
+    autoFixActive: Boolean,
+    onAutoFixChange: (Boolean) -> Unit,
     onAttach: () -> Unit,
     onRemoveAttachment: () -> Unit,
     onSend: () -> Unit,
@@ -751,6 +758,29 @@ private fun BottomBar(
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
                     }
+                }
+                // Opt-in auto-fix-until-CI-green for this message.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                ) {
+                    Checkbox(
+                        checked = autoFixUntilCiGreen,
+                        onCheckedChange = onAutoFixChange,
+                        enabled = !autoFixActive,
+                    )
+                    Text(
+                        text = stringResource(R.string.chat_auto_fix_ci),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (autoFixUntilCiGreen) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(

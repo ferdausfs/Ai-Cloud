@@ -67,6 +67,11 @@ data class ChatUiState(
     val pendingAttachment: PendingAttachment? = null,
     /** Latest known Actions run for the working branch (from check_ci_status). */
     val ciStatus: WorkflowRunInfo? = null,
+    /** Opt-in per message: run AutoFixLoop until CI is green (or attempts exhausted). */
+    val autoFixUntilCiGreen: Boolean = false,
+    val autoFixActive: Boolean = false,
+    val autoFixAttempt: Int = 0,
+    val autoFixMaxAttempts: Int = 0,
 )
 
 /**
@@ -143,6 +148,9 @@ class ChatViewModel @Inject constructor(
                         canRetry = if (sameRepo) live.canRetry else ui.canRetry,
                         ciStatus = if (sameRepo) (live.ciStatus ?: ui.ciStatus) else ui.ciStatus,
                         prState = if (sameRepo && prInfo != null) PrState.Ready(prInfo) else ui.prState,
+                        autoFixActive = if (sameRepo) live.autoFixActive else ui.autoFixActive,
+                        autoFixAttempt = if (sameRepo) live.autoFixAttempt else ui.autoFixAttempt,
+                        autoFixMaxAttempts = if (sameRepo) live.autoFixMaxAttempts else ui.autoFixMaxAttempts,
                     )
                 }
                 live.snackbar?.let { snack ->
@@ -162,16 +170,30 @@ class ChatViewModel @Inject constructor(
 
     fun clearPendingAttachment() = setPendingAttachment(null)
 
+    fun setAutoFixUntilCiGreen(enabled: Boolean) {
+        _uiState.update { it.copy(autoFixUntilCiGreen = enabled) }
+    }
+
     fun send(text: String, attachment: ChatAttachment? = null) =
         sendInternal(text, attachment, resend = false)
 
     fun retry() {
         turnCoordinator.lastUserInput()?.let {
-            sendInternal(it, turnCoordinator.lastAttachment(), resend = true)
+            sendInternal(
+                it,
+                turnCoordinator.lastAttachment(),
+                resend = true,
+                autoFixOverride = turnCoordinator.lastAutoFix(),
+            )
         }
     }
 
-    private fun sendInternal(text: String, attachment: ChatAttachment?, resend: Boolean) {
+    private fun sendInternal(
+        text: String,
+        attachment: ChatAttachment?,
+        resend: Boolean,
+        autoFixOverride: Boolean? = null,
+    ) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() && attachment == null) return
         val session = _uiState.value.session ?: return
@@ -187,12 +209,18 @@ class ChatViewModel @Inject constructor(
         }.ifBlank { "📎 ${attachment?.displayName.orEmpty()}" }
 
         val userText = trimmed.ifEmpty { displayText }
-        turnCoordinator.rememberRetry(userText, attachment)
+        val autoFix = autoFixOverride ?: state.autoFixUntilCiGreen
+        turnCoordinator.rememberRetry(userText, attachment, autoFix = autoFix)
         _uiState.update { it.copy(pendingAttachment = null, error = null) }
 
         viewModelScope.launch {
             if (!resend) {
-                chatRepository.appendUserText(repoKey, session.sessionId, displayText)
+                val label = if (autoFix) {
+                    "🔁 Auto-fix until CI green\n$displayText"
+                } else {
+                    displayText
+                }
+                chatRepository.appendUserText(repoKey, session.sessionId, label)
             }
             val request = TurnRequest(
                 repoKey = repoKey,
@@ -203,6 +231,7 @@ class ChatViewModel @Inject constructor(
                 sessionId = session.sessionId,
                 userText = userText,
                 attachment = attachment,
+                autoFixUntilCiGreen = autoFix,
             )
             // Runs in the application-scoped coordinator + FGS — not viewModelScope.
             turnCoordinator.startTurn(request)

@@ -16,7 +16,9 @@ import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSummary
 import dev.repochat.core.model.TreeEntry
+import dev.repochat.core.model.WorkflowJobInfo
 import dev.repochat.core.model.WorkflowRunInfo
+import dev.repochat.core.model.WorkflowStepInfo
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -156,6 +158,42 @@ class GithubRepositoryImpl @Inject constructor(
                 updatedAtMillis = run.updatedAt?.let(::parseIso8601),
             )
         }
+    }
+
+    override suspend fun listJobsForRun(
+        owner: String,
+        repo: String,
+        runId: Long,
+    ): List<WorkflowJobInfo> {
+        val dto = mapHttpErrors(AppError.Provider.GITHUB) {
+            api.listJobsForRun(owner = owner, repo = repo, runId = runId)
+        }
+        return dto.jobs.map { job ->
+            WorkflowJobInfo(
+                id = job.id,
+                name = job.name,
+                conclusion = job.conclusion,
+                status = job.status.orEmpty(),
+                steps = job.steps.map { step ->
+                    WorkflowStepInfo(
+                        name = step.name,
+                        conclusion = step.conclusion,
+                        number = step.number,
+                    )
+                },
+            )
+        }
+    }
+
+    override suspend fun getJobLogs(
+        owner: String,
+        repo: String,
+        jobId: Long,
+    ): String {
+        val body = mapHttpErrors(AppError.Provider.GITHUB) {
+            api.getJobLogs(owner = owner, repo = repo, jobId = jobId)
+        }
+        return body.use { it.string() }
     }
 
     /* ---------------------------- helpers ---------------------------- */
