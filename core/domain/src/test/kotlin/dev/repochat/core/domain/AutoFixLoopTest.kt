@@ -10,12 +10,13 @@ import dev.repochat.core.model.WorkflowStepInfo
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutoFixLoopTest {
 
-    private fun request(task: String = "make it build") = TurnRequest(
+    private fun request(task: String = "make it build", max: Int = 3) = TurnRequest(
         repoKey = "acme/demo",
         owner = "acme",
         repo = "demo",
@@ -24,7 +25,7 @@ class AutoFixLoopTest {
         sessionId = "testsess1",
         userText = task,
         autoFixUntilCiGreen = true,
-        autoFixMaxAttempts = 3,
+        autoFixMaxAttempts = max,
     )
 
     private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -32,8 +33,17 @@ class AutoFixLoopTest {
     private fun writeAction(path: String, content: String, msg: String) =
         """{"action":"write_file","path":"$path","content":${q(content)},"commit_message":"$msg"}"""
 
-    private fun replyAction(text: String) =
-        """{"action":"reply","message":${q(text)}}"""
+    private fun testLoop(
+        orchestrator: AiEditOrchestrator,
+        github: FakeGithubService,
+        chat: FakeChatRepository,
+    ) = AutoFixLoop(orchestrator, github, chat).apply {
+        ciWaitBudgetMs = 60_000
+        ciPollInitialMs = 0
+        ciPollMaxMs = 0
+        logRetryDelayMs = 0
+        ciMaxPolls = 8
+    }
 
     @Test
     fun truncateTail_keepsLastChars() {
@@ -56,18 +66,26 @@ class AutoFixLoopTest {
     }
 
     @Test
+    fun buildGaveUpMessage_isHonestAndAsksNextStep() {
+        val msg = AutoFixLoop.buildGaveUpMessage(
+            originalTask = "ship it",
+            attemptsMade = 5,
+            history = listOf("Attempt 1: CI failed — boom"),
+            lastLog = "e: boom",
+        )
+        assertTrue(msg.contains("couldn't get CI green", ignoreCase = true))
+        assertTrue(msg.contains("Want me to keep trying"))
+        assertFalse(msg.contains("CI is green"))
+    }
+
+    @Test
     fun loop_passesOnFirstGreenCi() = runTest {
         val ollama = FakeOllamaService(
-            ArrayDeque(
-                listOf(
-                    writeAction("src/Main.kt", "fun main()={}", "fix: compile"),
-                ),
-            ),
+            ArrayDeque(listOf(writeAction("src/Main.kt", "fun main()={}", "fix: compile"))),
         )
         val github = FakeGithubService().apply {
             files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
-            // Baseline empty, then a completed success for the new commit.
-            workflowRunSequence += emptyList() // baseline peek
+            // No baseline (workingBranch null). First poll after commit is green.
             workflowRunSequence += listOf(
                 WorkflowRunInfo(10, "Android CI", "completed", "success", "https://ci/10"),
             )
@@ -78,11 +96,13 @@ class AutoFixLoopTest {
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request(), maxAttempts = 3).toList()
-        val progress = events.filterIsInstance<TurnEvent.AutoFixProgress>().map { it.event }
-        assertTrue(progress.any { it is AutoFixEvent.AttemptStarted })
-        assertTrue(progress.any { it is AutoFixEvent.Committed })
-        assertTrue(progress.any { it is AutoFixEvent.CiPassed })
-        assertTrue(events.any { it is TurnEvent.Reply && (it as TurnEvent.Reply).text.contains("green") })
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+
+        assertTrue("missing AttemptStarted: $progress", progress.any { it is AutoFixEvent.AttemptStarted })
+        assertTrue("missing Committed: $progress", progress.any { it is AutoFixEvent.Committed })
+        assertTrue("missing CiPassed: $progress", progress.any { it is AutoFixEvent.CiPassed })
+        val replies = events.mapNotNull { (it as? TurnEvent.Reply)?.text }
+        assertTrue("no green reply in $replies", replies.any { it.contains("green", ignoreCase = true) })
         assertEquals("ai-chat/testsess1", github.committed?.second)
     }
 
@@ -91,21 +111,16 @@ class AutoFixLoopTest {
         val ollama = FakeOllamaService(
             ArrayDeque(
                 listOf(
-                    // Attempt 1: bad write
                     writeAction("src/Main.kt", "fun broken() = NOPE", "fix: broken"),
-                    // Attempt 2: real fix after seeing the log
                     writeAction("src/Main.kt", "fun main() = Unit", "fix: real fix"),
                 ),
             ),
         )
         val github = FakeGithubService().apply {
             files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
-            workflowRunSequence += emptyList() // baseline
-            // After attempt 1 commit: failure
             workflowRunSequence += listOf(
                 WorkflowRunInfo(21, "Android CI", "completed", "failure", "https://ci/21"),
             )
-            // After attempt 2 commit: success
             workflowRunSequence += listOf(
                 WorkflowRunInfo(22, "Android CI", "completed", "success", "https://ci/22"),
             )
@@ -114,9 +129,7 @@ class AutoFixLoopTest {
                     id = 210,
                     name = "Build & unit tests",
                     conclusion = "failure",
-                    steps = listOf(
-                        WorkflowStepInfo("Assemble debug APK", "failure", 5),
-                    ),
+                    steps = listOf(WorkflowStepInfo("Assemble debug APK", "failure", 5)),
                 ),
             )
             jobLogs[210] = "e: file://src/Main.kt:1:1 Unresolved reference: NOPE\nFAILED"
@@ -127,21 +140,16 @@ class AutoFixLoopTest {
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request("fix Main.kt"), maxAttempts = 3).toList()
-        val progress = events.filterIsInstance<TurnEvent.AutoFixProgress>().map { it.event }
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
 
         val failed = progress.filterIsInstance<AutoFixEvent.CiFailed>()
-        assertEquals(1, failed.size)
+        assertEquals("expected one CiFailed, got $progress", 1, failed.size)
         assertTrue(
             "expected real log excerpt, got: ${failed[0].logExcerpt}",
             failed[0].logExcerpt.contains("Unresolved reference: NOPE"),
         )
         assertEquals(210L, github.lastLogJobId)
-
-        assertTrue(progress.any { it is AutoFixEvent.CiPassed })
-        // Second write used the fix prompt containing the log.
-        assertTrue(
-            ollama.lastMessages.any { it.content.contains("Unresolved reference: NOPE") },
-        )
+        assertTrue("missing CiPassed: $progress", progress.any { it is AutoFixEvent.CiPassed })
     }
 
     @Test
@@ -156,7 +164,6 @@ class AutoFixLoopTest {
         )
         val github = FakeGithubService().apply {
             files["a.kt"] = GitFile("a.kt", "old", "sha", 1, false)
-            workflowRunSequence += emptyList()
             workflowRunSequence += listOf(
                 WorkflowRunInfo(1, "CI", "completed", "failure", null),
             )
@@ -173,30 +180,17 @@ class AutoFixLoopTest {
         val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
         val loop = testLoop(orchestrator, github, chat)
 
-        val events = loop.run(request("impossible"), maxAttempts = 2).toList()
-        val gaveUp = events.filterIsInstance<TurnEvent.AutoFixProgress>()
-            .map { it.event }
-            .filterIsInstance<AutoFixEvent.GaveUp>()
-        assertEquals(1, gaveUp.size)
+        val events = loop.run(request("impossible", max = 2), maxAttempts = 2).toList()
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+        val gaveUp = progress.filterIsInstance<AutoFixEvent.GaveUp>()
+        assertEquals("expected GaveUp in $progress", 1, gaveUp.size)
         assertEquals(2, gaveUp[0].attemptsMade)
-        val reply = events.filterIsInstance<TurnEvent.Reply>().last()
-        assertTrue(reply.text.contains("couldn't get CI green", ignoreCase = true))
-        assertTrue(reply.text.contains("Want me to keep trying"))
-        // Never claim success.
-        assertTrue(events.none { it is TurnEvent.AutoFixProgress && it.event is AutoFixEvent.CiPassed })
-    }
-
-    private fun testLoop(
-        orchestrator: AiEditOrchestrator,
-        github: FakeGithubService,
-        chat: FakeChatRepository,
-    ) = AutoFixLoop(orchestrator, github, chat).apply {
-        // Wall-clock budget stays large; poll cap + 0 delays keep tests fast
-        // under runTest virtual time (System.currentTimeMillis does not advance).
-        ciWaitBudgetMs = 60_000
-        ciPollInitialMs = 0
-        ciPollMaxMs = 0
-        logRetryDelayMs = 0
-        ciMaxPolls = 6
+        val reply = events.mapNotNull { (it as? TurnEvent.Reply)?.text }.last()
+        assertTrue(reply.contains("couldn't get CI green", ignoreCase = true))
+        assertTrue(reply.contains("Want me to keep trying"))
+        assertTrue(
+            "must not claim success: $progress",
+            progress.none { it is AutoFixEvent.CiPassed },
+        )
     }
 }

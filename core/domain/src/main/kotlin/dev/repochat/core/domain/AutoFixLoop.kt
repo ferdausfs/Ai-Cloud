@@ -73,7 +73,12 @@ class AutoFixLoop @Inject constructor(
             send(TurnEvent.AutoFixProgress(AutoFixEvent.AttemptStarted(attempt, maxAttempts)))
             postStatus(request, formatAttemptStarted(attempt, maxAttempts))
 
-            val approval = MutableSharedFlow<Boolean>(extraBufferCapacity = 4)
+            // Replay=1 so approval is ready even if first() races ahead of tryEmit.
+            val approval = MutableSharedFlow<Boolean>(
+                replay = 1,
+                extraBufferCapacity = 4,
+            )
+            approval.tryEmit(true) // auto-approve every write in this loop
             val attemptRequest = request.copy(userText = prompt, autoFixUntilCiGreen = false)
             var committedSummary: String? = null
             var workingBranch: String? = request.workingBranch
@@ -84,6 +89,7 @@ class AutoFixLoop @Inject constructor(
                 when (event) {
                     is TurnEvent.ProposeWrite -> {
                         send(event)
+                        // Re-arm for any subsequent write in the same turn.
                         approval.tryEmit(true)
                     }
                     is TurnEvent.WriteCommitted -> {
