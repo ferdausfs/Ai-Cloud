@@ -27,7 +27,10 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -131,6 +134,8 @@ fun SettingsScreen(
                 testState = state.connectionTests[editing.id] ?: TestState(),
                 modelList = state.modelLists[editing.id] ?: ModelListState(),
                 useCustomModel = editing.id in state.customModelIds,
+                freeOnly = state.freeOnlyByConnection[editing.id]
+                    ?: SettingsViewModel.defaultFreeOnlyForConnection(editing),
                 onChange = viewModel::updateConnection,
                 onApiKeyChange = { viewModel.onApiKeyChanged(editing.id, it) },
                 onSelectPreset = { viewModel.selectOpenAiPreset(editing.id, it) },
@@ -139,6 +144,7 @@ fun SettingsScreen(
                     viewModel.updateConnection(editing.copy(modelName = model))
                 },
                 onCustomModel = { viewModel.setUseCustomModel(editing.id, true) },
+                onFreeOnlyChange = { viewModel.setFreeOnly(editing.id, it) },
                 onLoadModels = { viewModel.loadModels(editing.id) },
                 onTest = { viewModel.testConnection(editing.id) },
                 onSave = viewModel::saveConnectionEdit,
@@ -306,11 +312,13 @@ private fun ConnectionEditor(
     testState: TestState,
     modelList: ModelListState,
     useCustomModel: Boolean,
+    freeOnly: Boolean,
     onChange: (ServiceConnection) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onSelectPreset: (String) -> Unit,
     onSelectModel: (String) -> Unit,
     onCustomModel: () -> Unit,
+    onFreeOnlyChange: (Boolean) -> Unit,
     onLoadModels: () -> Unit,
     onTest: () -> Unit,
     onSave: () -> Unit,
@@ -401,7 +409,15 @@ private fun ConnectionEditor(
                 SettingsViewModel.suggestedModelsFor(matchOpenAiPreset(connection.baseUrl).label)
             else -> emptyList()
         }
-        val modelChoices = modelList.models.ifEmpty { curated }
+        val allModels = SettingsViewModel.sortModelsFreeFirst(
+            modelList.models.ifEmpty { curated },
+        )
+        val hasFree = allModels.any { SettingsViewModel.isFreeModelId(it) }
+        val modelChoices = if (freeOnly && hasFree) {
+            allModels.filter { SettingsViewModel.isFreeModelId(it) }
+        } else {
+            allModels
+        }
         val loading = modelList.status == ModelListStatus.Loading
         val forceCustom = useCustomModel ||
             modelList.status == ModelListStatus.Failed ||
@@ -409,9 +425,13 @@ private fun ConnectionEditor(
         ModelPicker(
             modelName = connection.modelName,
             models = modelChoices,
+            allModels = allModels,
             useCustom = forceCustom,
             loading = loading,
             failedDetail = modelList.detail,
+            freeOnly = freeOnly,
+            showFreeFilter = hasFree,
+            onFreeOnlyChange = onFreeOnlyChange,
             onSelectModel = onSelectModel,
             onCustomModel = onCustomModel,
             onModelTextChange = { onChange(connection.copy(modelName = it)) },
@@ -453,9 +473,13 @@ private fun ConnectionEditor(
 private fun ModelPicker(
     modelName: String,
     models: List<String>,
+    allModels: List<String>,
     useCustom: Boolean,
     loading: Boolean,
     failedDetail: String,
+    freeOnly: Boolean,
+    showFreeFilter: Boolean,
+    onFreeOnlyChange: (Boolean) -> Unit,
     onSelectModel: (String) -> Unit,
     onCustomModel: () -> Unit,
     onModelTextChange: (String) -> Unit,
@@ -482,6 +506,14 @@ private fun ModelPicker(
             }
         }
     }
+    if (showFreeFilter) {
+        Spacer(Modifier.height(4.dp))
+        FilterChip(
+            selected = freeOnly,
+            onClick = { onFreeOnlyChange(!freeOnly) },
+            label = { Text(stringResource(R.string.settings_model_free_only)) },
+        )
+    }
     Spacer(Modifier.height(4.dp))
     if (!useCustom && models.isNotEmpty()) {
         var expanded by remember { mutableStateOf(false) }
@@ -496,6 +528,23 @@ private fun ModelPicker(
                         Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
                     }
                 },
+                supportingText = {
+                    if (modelName.isNotBlank()) {
+                        val free = SettingsViewModel.isFreeModelId(modelName)
+                        Text(
+                            if (free) {
+                                stringResource(R.string.settings_model_free)
+                            } else {
+                                stringResource(R.string.settings_model_paid)
+                            },
+                            color = if (free) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             DropdownMenu(
@@ -504,7 +553,9 @@ private fun ModelPicker(
             ) {
                 models.forEach { id ->
                     DropdownMenuItem(
-                        text = { Text(id) },
+                        text = {
+                            ModelIdRow(id = id)
+                        },
                         onClick = {
                             expanded = false
                             onSelectModel(id)
@@ -531,17 +582,64 @@ private fun ModelPicker(
                 Text(
                     when {
                         failedDetail.isNotBlank() -> failedDetail
-                        models.isEmpty() -> stringResource(R.string.settings_models_load_failed)
+                        models.isEmpty() && allModels.isEmpty() ->
+                            stringResource(R.string.settings_models_load_failed)
+                        models.isEmpty() && freeOnly ->
+                            stringResource(R.string.settings_model_free_only)
                         else -> stringResource(R.string.settings_model_custom_hint)
                     },
                 )
             },
         )
-        if (models.isNotEmpty()) {
+        if (allModels.isNotEmpty()) {
             TextButton(onClick = onBackToList) {
                 Text(stringResource(R.string.settings_model_from_list))
             }
         }
+    }
+}
+
+@Composable
+private fun ModelIdRow(id: String) {
+    val free = SettingsViewModel.isFreeModelId(id)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = id,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        AssistChip(
+            onClick = {},
+            enabled = false,
+            label = {
+                Text(
+                    if (free) {
+                        stringResource(R.string.settings_model_free)
+                    } else {
+                        stringResource(R.string.settings_model_paid)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            },
+            colors = AssistChipDefaults.assistChipColors(
+                disabledContainerColor = if (free) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                disabledLabelColor = if (free) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            ),
+        )
     }
 }
 

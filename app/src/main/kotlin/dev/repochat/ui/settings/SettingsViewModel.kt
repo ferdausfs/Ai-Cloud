@@ -49,6 +49,8 @@ data class SettingsUiState(
     val connectionTests: Map<String, TestState> = emptyMap(),
     /** Per-connection: user chose free-text model entry. */
     val customModelIds: Set<String> = emptySet(),
+    /** Per-connection: when true, model picker hides non-:free ids (default ON for OpenRouter). */
+    val freeOnlyByConnection: Map<String, Boolean> = emptyMap(),
     val modelLists: Map<String, ModelListState> = emptyMap(),
     val activeRepo: ActiveRepo? = null,
     val savedFlash: Boolean = false,
@@ -132,8 +134,12 @@ class SettingsViewModel @Inject constructor(
                 providerOrder = it.providerOrder + id,
                 editingConnectionId = id,
                 customModelIds = it.customModelIds - id,
+                freeOnlyByConnection = it.freeOnlyByConnection + (
+                    id to defaultFreeOnlyForConnection(draft)
+                    ),
             )
         }
+        loadModels(id)
     }
 
     fun startEditConnection(id: String) {
@@ -148,9 +154,12 @@ class SettingsViewModel @Inject constructor(
             }
         }
         _uiState.update { state ->
+            val freeOnly = state.freeOnlyByConnection[id]
+                ?: (conn?.let { defaultFreeOnlyForConnection(it) } ?: false)
             state.copy(
                 editingConnectionId = id,
                 customModelIds = if (useCustom) state.customModelIds + id else state.customModelIds - id,
+                freeOnlyByConnection = state.freeOnlyByConnection + (id to freeOnly),
             )
         }
         loadModels(id)
@@ -177,12 +186,22 @@ class SettingsViewModel @Inject constructor(
             baseUrl = preset.baseUrl,
             modelName = when {
                 preset.baseUrl == conn.baseUrl -> conn.modelName
+                models.isNotEmpty() && preset.label == "OpenRouter" ->
+                    models.firstOrNull { isFreeModelId(it) } ?: models.first()
                 models.isNotEmpty() -> models.first()
                 else -> ""
             },
         )
         updateConnection(next)
-        _uiState.update { it.copy(customModelIds = it.customModelIds - connectionId) }
+        _uiState.update {
+            it.copy(
+                customModelIds = it.customModelIds - connectionId,
+                freeOnlyByConnection = it.freeOnlyByConnection + (
+                    connectionId to defaultFreeOnlyForConnection(next)
+                    ),
+            )
+        }
+        if (next.apiKey.isNotBlank()) loadModels(connectionId)
     }
 
     fun setUseCustomModel(connectionId: String, custom: Boolean) {
@@ -191,6 +210,27 @@ class SettingsViewModel @Inject constructor(
                 state.copy(customModelIds = state.customModelIds + connectionId)
             } else {
                 state.copy(customModelIds = state.customModelIds - connectionId)
+            }
+        }
+    }
+
+    fun setFreeOnly(connectionId: String, freeOnly: Boolean) {
+        _uiState.update { state ->
+            state.copy(
+                freeOnlyByConnection = state.freeOnlyByConnection + (connectionId to freeOnly),
+            )
+        }
+        // If the current selection is paid and free-only is on, pick first free model.
+        if (freeOnly) {
+            val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return
+            if (!isFreeModelId(conn.modelName)) {
+                val models = _uiState.value.modelLists[connectionId]?.models.orEmpty()
+                val free = models.firstOrNull { isFreeModelId(it) }
+                    ?: suggestedModelsFor(matchOpenAiPreset(conn.baseUrl).label)
+                        .firstOrNull { isFreeModelId(it) }
+                if (free != null) {
+                    updateConnection(conn.copy(modelName = free))
+                }
             }
         }
     }
@@ -227,13 +267,18 @@ class SettingsViewModel @Inject constructor(
             } catch (_: Exception) {
                 emptyList()
             }
-            val models = when {
-                live.isNotEmpty() -> live
-                curated.isNotEmpty() -> curated
-                else -> emptyList()
-            }
+            val models = sortModelsFreeFirst(
+                when {
+                    live.isNotEmpty() -> live
+                    curated.isNotEmpty() -> curated
+                    else -> emptyList()
+                },
+            )
             val failed = live.isEmpty() && curated.isEmpty() &&
                 conn.type == ConnectionType.OPENAI_COMPATIBLE
+            // Default free-only when any :free id is present (or OpenRouter preset).
+            val freeOnlyDefault = _uiState.value.freeOnlyByConnection[connectionId]
+                ?: (models.any { isFreeModelId(it) } || defaultFreeOnlyForConnection(conn))
             _uiState.update {
                 it.copy(
                     modelLists = it.modelLists + (
@@ -241,16 +286,27 @@ class SettingsViewModel @Inject constructor(
                             status = if (failed) ModelListStatus.Failed else ModelListStatus.Ready,
                             models = models,
                             detail = if (failed) {
-                                "Could not load models — enter the model name manually"
+                                "Could not load models - enter the model name manually"
                             } else {
                                 ""
                             },
                         )
                         ),
+                    freeOnlyByConnection = it.freeOnlyByConnection + (connectionId to freeOnlyDefault),
                 )
             }
-            if (models.isNotEmpty() && conn.modelName.isBlank()) {
-                updateConnection(conn.copy(modelName = models.first()))
+            val freeOnly = freeOnlyDefault
+            val preferred = when {
+                freeOnly -> models.firstOrNull { isFreeModelId(it) } ?: models.firstOrNull()
+                else -> models.firstOrNull()
+            }
+            if (models.isNotEmpty()) {
+                val current = conn.modelName
+                val currentOk = current.isNotBlank() && current in models &&
+                    (!freeOnly || isFreeModelId(current))
+                if (!currentOk && preferred != null) {
+                    updateConnection(conn.copy(modelName = preferred))
+                }
             }
         }
     }
@@ -355,6 +411,22 @@ class SettingsViewModel @Inject constructor(
     }
 
     companion object {
+        /** OpenRouter (and similar) mark zero-cost routes with a `:free` suffix. */
+        fun isFreeModelId(id: String): Boolean =
+            id.trim().lowercase().endsWith(":free")
+
+        /** Free models first (stable alpha within each group). */
+        fun sortModelsFreeFirst(models: List<String>): List<String> {
+            val free = models.filter { isFreeModelId(it) }.sorted()
+            val paid = models.filterNot { isFreeModelId(it) }.sorted()
+            return free + paid
+        }
+
+        fun defaultFreeOnlyForConnection(conn: ServiceConnection): Boolean {
+            if (conn.type != ConnectionType.OPENAI_COMPATIBLE) return false
+            return matchOpenAiPreset(conn.baseUrl).label == "OpenRouter"
+        }
+
         /** Curated starter models per known provider (live list can replace later). */
         fun suggestedModelsFor(providerLabel: String): List<String> = when (providerLabel) {
             "Groq" -> listOf(
@@ -369,9 +441,10 @@ class SettingsViewModel @Inject constructor(
                 "gpt-oss-120b",
             )
             "OpenRouter" -> listOf(
-                "openai/gpt-4o-mini",
-                "google/gemini-2.0-flash-001",
-                "meta-llama/llama-3.3-70b-instruct",
+                "meta-llama/llama-3.1-8b-instruct:free",
+                "google/gemma-2-9b-it:free",
+                "qwen/qwen-2.5-7b-instruct:free",
+                "meta-llama/llama-3.3-70b-instruct:free",
             )
             "Together.ai" -> listOf(
                 "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
