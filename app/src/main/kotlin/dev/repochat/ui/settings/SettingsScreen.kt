@@ -212,8 +212,8 @@ private fun SettingsHome(
                 isActive = state.activeProviderId == conn.id ||
                     (state.activeProviderId == null && ordered.firstOrNull()?.id == conn.id),
                 onEdit = { onStartEdit(conn.id) },
-                onMoveUp = { onMoveProvider(conn.id, up = true) },
-                onMoveDown = { onMoveProvider(conn.id, up = false) },
+                onMoveUp = { onMoveProvider(conn.id, true) },
+                onMoveDown = { onMoveProvider(conn.id, false) },
                 onSetActive = { onSetActiveProvider(conn.id) },
             )
             Spacer(Modifier.height(8.dp))
