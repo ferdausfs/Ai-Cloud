@@ -27,16 +27,16 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -326,21 +326,26 @@ private fun ConnectionEditor(
             // Step 1 — Provider preset
             val matched = matchOpenAiPreset(connection.baseUrl)
             var providerExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = providerExpanded,
-                onExpandedChange = { providerExpanded = it },
-            ) {
+            Box {
                 OutlinedTextField(
                     value = matched.label,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(stringResource(R.string.settings_provider_preset)) },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = providerExpanded) },
+                    trailingIcon = {
+                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        .clickable { providerExpanded = true },
                 )
-                ExposedDropdownMenu(
+                // Transparent overlay so the field is tappable even when read-only.
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable { providerExpanded = true },
+                )
+                DropdownMenu(
                     expanded = providerExpanded,
                     onDismissRequest = { providerExpanded = false },
                 ) {
@@ -489,10 +494,7 @@ private fun ModelPicker(
 
         if (showDropdown) {
             var expanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = it },
-            ) {
+            Box {
                 OutlinedTextField(
                     value = connection.modelName.ifBlank {
                         stringResource(R.string.settings_model_pick)
@@ -500,12 +502,17 @@ private fun ModelPicker(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(stringResource(R.string.settings_model_name)) },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    trailingIcon = {
+                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                ExposedDropdownMenu(
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable { expanded = true },
+                )
+                DropdownMenu(
                     expanded = expanded,
                     onDismissRequest = { expanded = false },
                 ) {
