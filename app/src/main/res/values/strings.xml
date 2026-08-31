@@ -164,4 +164,7 @@
     <string name="settings_model_from_list">Pick from list</string>
     <string name="settings_models_load_failed">Could not load the model list - enter the model name manually</string>
     <string name="settings_ollama_model_hint">Cloud model id, e.g. gpt-oss:120b-cloud</string>
+    <string name="settings_model_free">Free</string>
+    <string name="settings_model_paid">Paid</string>
+    <string name="settings_model_free_only">Show free models only</string>
 </resources>
