@@ -24,10 +24,9 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -326,24 +325,18 @@ private fun ConnectionEditor(
             // Step 1 — Provider preset
             val matched = matchOpenAiPreset(connection.baseUrl)
             var providerExpanded by remember { mutableStateOf(false) }
-            Box {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = matched.label,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(stringResource(R.string.settings_provider_preset)) },
                     trailingIcon = {
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                        IconButton(onClick = { providerExpanded = true }) {
+                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                        }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { providerExpanded = true },
-                )
-                // Transparent overlay so the field is tappable even when read-only.
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable { providerExpanded = true },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 DropdownMenu(
                     expanded = providerExpanded,
@@ -371,15 +364,13 @@ private fun ConnectionEditor(
                 readOnly = !isCustom,
                 enabled = isCustom,
                 modifier = Modifier.fillMaxWidth(),
-                supportingText = if (!isCustom) {
-                    {
+                supportingText = {
+                    if (!isCustom) {
                         Text(
                             stringResource(R.string.settings_base_url_locked),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                } else {
-                    null
                 },
             )
 
@@ -485,7 +476,7 @@ private fun ModelPicker(
                     onClick = onLoadModels,
                     enabled = !loading,
                 ) {
-                    Icon(Icons.Rounded.Refresh, null, Modifier.size(16.dp))
+                    Icon(Icons.Rounded.Sync, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(stringResource(R.string.settings_load_models))
                 }
@@ -494,7 +485,7 @@ private fun ModelPicker(
 
         if (showDropdown) {
             var expanded by remember { mutableStateOf(false) }
-            Box {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = connection.modelName.ifBlank {
                         stringResource(R.string.settings_model_pick)
@@ -503,14 +494,11 @@ private fun ModelPicker(
                     readOnly = true,
                     label = { Text(stringResource(R.string.settings_model_name)) },
                     trailingIcon = {
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                        IconButton(onClick = { expanded = true }) {
+                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable { expanded = true },
                 )
                 DropdownMenu(
                     expanded = expanded,
