@@ -44,10 +44,9 @@ class FirebaseOAuthTest {
     private fun split(assertion: String): Pair<String, String> {
         val parts = assertion.split('.')
         assertEquals(3, parts.size)
-        // header === payload
         val header = String(jvmBase64UrlDecode(parts[0]), StandardCharsets.UTF_8)
         val claims = String(jvmBase64UrlDecode(parts[1]), StandardCharsets.UTF_8)
-        return header to "$claims.${parts[2]}"
+        return header to claims
     }
 
     @Test
@@ -97,8 +96,7 @@ class FirebaseOAuthTest {
             base64UrlEncode = jvmBase64UrlEncode,
             base64Decode = jvmBase64Decode,
         )
-        val (header, payloadWithSig) = split(assertion)
-        val claims = payloadWithSig.substringBefore('.')
+        val (header, claims) = split(assertion)
 
         val headerObj = json.parseToJsonElement(header).jsonObject
         assertEquals("RS256", headerObj["alg"]?.jsonPrimitive?.content)
@@ -135,8 +133,7 @@ class FirebaseOAuthTest {
             base64UrlEncode = jvmBase64UrlEncode,
             base64Decode = jvmBase64Decode,
         )
-        val (_, payloadWithSig) = split(assertion)
-        val claims = payloadWithSig.substringBefore('.')
+        val (_, claims) = split(assertion)
         val claimsObj = json.parseToJsonElement(claims).jsonObject
         assertEquals("scope\\with\\slashes", claimsObj["scope"]?.jsonPrimitive?.content)
     }
