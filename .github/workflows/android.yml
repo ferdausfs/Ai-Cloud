@@ -108,6 +108,14 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Enable KVM group permissions
+        # Required on Linux runners for hardware-accelerated emulators; without
+        # this the x86_64 emulator runs in software mode and times out on boot.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Start emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -151,12 +159,12 @@ jobs:
         uses: dependency-check/Dependency-Check_Action@main
         id: depcheck
         env:
-          # The action runs inside its own Docker image which already bundles a
-          # JDK. The host JAVA_HOME points at a tool-cache path that is not
-          # mounted inside the container, so clear it and let the container
-          # resolve its own Java instead of failing with "JAVA_HOME is not
+          # actions/setup-java sets JAVA_HOME to the runner's tool-cache path,
+          # which does not exist inside the Dependency-Check Docker image.
+          # Reset it to the JDK path baked into that image (/opt/jdk) so the
+          # container can find java; blank also fails with "JAVA_HOME is not
           # defined correctly".
-          JAVA_HOME: ""
+          JAVA_HOME: /opt/jdk
         with:
           project: 'RepoChat'
           path: '.'
