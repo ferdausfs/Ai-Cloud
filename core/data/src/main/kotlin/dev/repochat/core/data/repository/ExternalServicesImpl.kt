@@ -273,6 +273,9 @@ internal object FirebaseOAuth {
         ignoreUnknownKeys = true
         coerceInputValues = true
         isLenient = true
+        // JwtHeader has all-default fields (alg/typ); without this the encoded
+        // JSON would be `{}` and the OAuth server would reject the assertion.
+        encodeDefaults = true
     }
 
     @Serializable
