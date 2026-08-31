@@ -1,6 +1,7 @@
 # Android CI + Auto-merge for RepoChat (Ai-Cloud)
-# Triggers on pushes to ai-chat/** branches and on pull requests.
+# Triggers on pushes to ANY branch (includes ai-chat/* working branches) and on pull requests.
 # When the working branch (ai-chat/*) passes build + tests, it is auto-merged into main.
+# main-e NEVER directly pushed — only ai-chat/* → main merge is allowed.
 
 name: Android CI
 
@@ -68,7 +69,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: | 
+          path: |
             **/build/reports/tests/**/*.xml
             **/build/test-results/**/*.xml
           if-no-files-found: ignore
@@ -165,11 +166,18 @@ jobs:
           retention-days: 30
 
   # Auto-merge: once the working branch is GREEN (build + tests pass),
-  # merge it into main automatically — no manual push is needed.
+  # merge it into main automatically — no direct push to main ever.
   merge-to-main:
     name: Auto-merge into main when green
     needs: [build, connected-tests, dependency-check]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/ai-chat/') && (needs.build.result == 'success' && needs.connected-tests.result == 'success' && needs.dependency-check.result == 'success')
+    # ONLY ai-chat/** branches are allowed to merge into main automatically.
+    # main, master, or any other branch name will NOT trigger this job.
+    if: >
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/heads/ai-chat/') &&
+      (needs.build.result == 'success' &&
+       needs.connected-tests.result == 'success' &&
+       needs.dependency-check.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
