@@ -24,14 +24,10 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,10 +60,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.repochat.R
 import dev.repochat.core.model.ConnectionType
-import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
-import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
 import dev.repochat.core.model.ServiceConnection
-import dev.repochat.core.model.matchOpenAiPreset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -130,18 +123,7 @@ fun SettingsScreen(
             ConnectionEditor(
                 connection = editing,
                 testState = state.connectionTests[editing.id] ?: TestState(),
-                modelList = state.modelLists[editing.id] ?: ModelListState(),
                 onChange = viewModel::updateConnection,
-                onApiKeyChange = { viewModel.onApiKeyChanged(editing.id, it) },
-                onSelectPreset = { viewModel.selectOpenAiPreset(editing.id, it) },
-                onSelectModel = { model ->
-                    viewModel.setUseCustomModel(editing.id, false)
-                    viewModel.updateConnection(editing.copy(modelName = model))
-                },
-                onCustomModel = {
-                    viewModel.setUseCustomModel(editing.id, true)
-                },
-                onLoadModels = { viewModel.loadModels(editing.id) },
                 onTest = { viewModel.testConnection(editing.id) },
                 onSave = viewModel::saveConnectionEdit,
                 onDelete = { viewModel.deleteConnection(editing.id) },
@@ -301,18 +283,11 @@ private fun ProviderRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConnectionEditor(
     connection: ServiceConnection,
     testState: TestState,
-    modelList: ModelListState,
     onChange: (ServiceConnection) -> Unit,
-    onApiKeyChange: (String) -> Unit,
-    onSelectPreset: (String) -> Unit,
-    onSelectModel: (String) -> Unit,
-    onCustomModel: () -> Unit,
-    onLoadModels: () -> Unit,
     onTest: () -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
@@ -320,96 +295,37 @@ private fun ConnectionEditor(
 ) {
     Column(modifier = modifier) {
         Spacer(Modifier.height(8.dp))
-
+        OutlinedTextField(
+            value = connection.label,
+            onValueChange = { onChange(connection.copy(label = it)) },
+            label = { Text(stringResource(R.string.settings_conn_label)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         if (connection.type == ConnectionType.OPENAI_COMPATIBLE) {
-            // Step 1 — Provider preset
-            val matched = matchOpenAiPreset(connection.baseUrl)
-            var providerExpanded by remember { mutableStateOf(false) }
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = matched.label,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(stringResource(R.string.settings_provider_preset)) },
-                    trailingIcon = {
-                        IconButton(onClick = { providerExpanded = true }) {
-                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                DropdownMenu(
-                    expanded = providerExpanded,
-                    onDismissRequest = { providerExpanded = false },
-                ) {
-                    KNOWN_OPENAI_PROVIDERS.forEach { preset ->
-                        DropdownMenuItem(
-                            text = { Text(preset.label) },
-                            onClick = {
-                                providerExpanded = false
-                                onSelectPreset(preset.label)
-                            },
-                        )
-                    }
-                }
-            }
-
             Spacer(Modifier.height(10.dp))
-            val isCustom = matched.baseUrl.isEmpty()
             OutlinedTextField(
                 value = connection.baseUrl,
-                onValueChange = { if (isCustom) onChange(connection.copy(baseUrl = it)) },
+                onValueChange = { onChange(connection.copy(baseUrl = it)) },
                 label = { Text(stringResource(R.string.settings_base_url)) },
-                singleLine = true,
-                readOnly = !isCustom,
-                enabled = isCustom,
-                modifier = Modifier.fillMaxWidth(),
-                supportingText = {
-                    if (!isCustom) {
-                        Text(
-                            stringResource(R.string.settings_base_url_locked),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                },
-            )
-
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = connection.label,
-                onValueChange = { onChange(connection.copy(label = it)) },
-                label = { Text(stringResource(R.string.settings_conn_label)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            // Ollama: label only (base is fixed to ollama.com via interceptor path)
-            OutlinedTextField(
-                value = connection.label,
-                onValueChange = { onChange(connection.copy(label = it)) },
-                label = { Text(stringResource(R.string.settings_conn_label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-
         Spacer(Modifier.height(10.dp))
         SecretField(
             value = connection.apiKey,
-            onValueChange = onApiKeyChange,
+            onValueChange = { onChange(connection.copy(apiKey = it)) },
             label = stringResource(R.string.settings_api_key),
         )
-
         Spacer(Modifier.height(10.dp))
-        ModelPicker(
-            connection = connection,
-            modelList = modelList,
-            onSelectModel = onSelectModel,
-            onCustomModel = onCustomModel,
-            onModelTextChange = { onChange(connection.copy(modelName = it)) },
-            onLoadModels = onLoadModels,
+        OutlinedTextField(
+            value = connection.modelName,
+            onValueChange = { onChange(connection.copy(modelName = it)) },
+            label = { Text(stringResource(R.string.settings_model_name)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
         )
-
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = onTest) {
@@ -432,128 +348,6 @@ private fun ConnectionEditor(
             Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text(stringResource(R.string.settings_delete_connection))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ModelPicker(
-    connection: ServiceConnection,
-    modelList: ModelListState,
-    onSelectModel: (String) -> Unit,
-    onCustomModel: () -> Unit,
-    onModelTextChange: (String) -> Unit,
-    onLoadModels: () -> Unit,
-) {
-    val models = when {
-        modelList.models.isNotEmpty() -> modelList.models
-        connection.type == ConnectionType.OLLAMA -> KNOWN_OLLAMA_CLOUD_MODELS
-        else -> emptyList()
-    }
-    val showDropdown = !modelList.useCustomModel &&
-        models.isNotEmpty() &&
-        modelList.status != ModelListStatus.Failed
-    val loading = modelList.status == ModelListStatus.Loading
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = stringResource(R.string.settings_model_name),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (loading) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                }
-                TextButton(
-                    onClick = onLoadModels,
-                    enabled = !loading,
-                ) {
-                    Icon(Icons.Rounded.Sync, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.settings_load_models))
-                }
-            }
-        }
-
-        if (showDropdown) {
-            var expanded by remember { mutableStateOf(false) }
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = connection.modelName.ifBlank {
-                        stringResource(R.string.settings_model_pick)
-                    },
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(stringResource(R.string.settings_model_name)) },
-                    trailingIcon = {
-                        IconButton(onClick = { expanded = true }) {
-                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false },
-                ) {
-                    models.forEach { id ->
-                        DropdownMenuItem(
-                            text = { Text(id) },
-                            onClick = {
-                                expanded = false
-                                onSelectModel(id)
-                            },
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.settings_model_custom)) },
-                        onClick = {
-                            expanded = false
-                            onCustomModel()
-                        },
-                    )
-                }
-            }
-        } else {
-            OutlinedTextField(
-                value = connection.modelName,
-                onValueChange = onModelTextChange,
-                label = { Text(stringResource(R.string.settings_model_name)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                supportingText = {
-                    val helper = when {
-                        modelList.status == ModelListStatus.Failed ->
-                            modelList.detail.ifBlank {
-                                stringResource(R.string.settings_models_load_failed)
-                            }
-                        modelList.useCustomModel && models.isNotEmpty() ->
-                            stringResource(R.string.settings_model_custom_hint)
-                        connection.type == ConnectionType.OLLAMA ->
-                            stringResource(R.string.settings_ollama_model_hint)
-                        else -> stringResource(R.string.settings_models_load_failed)
-                    }
-                    Text(helper)
-                },
-            )
-            if (models.isNotEmpty() && modelList.useCustomModel) {
-                TextButton(onClick = {
-                    // Switch back to dropdown; keep current name if it matches.
-                    onSelectModel(
-                        connection.modelName.takeIf { it in models } ?: models.first(),
-                    )
-                }) {
-                    Text(stringResource(R.string.settings_model_from_list))
-                }
-            }
         }
     }
 }
