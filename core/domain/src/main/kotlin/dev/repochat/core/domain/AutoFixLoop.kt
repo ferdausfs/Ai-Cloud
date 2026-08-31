@@ -121,6 +121,7 @@ class AutoFixLoop @Inject constructor(
                     is TurnEvent.ReadingFile,
                     is TurnEvent.PullRequestCreated,
                     is TurnEvent.CiStatus,
+                    is TurnEvent.ProviderNote,
                     is TurnEvent.AutoFixProgress,
                     -> send(event)
                 }
