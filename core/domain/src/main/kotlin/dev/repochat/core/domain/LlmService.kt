@@ -24,4 +24,7 @@ interface LlmService {
 
     /** Trivial ping against one connection (Settings "Test"). */
     suspend fun test(connection: ServiceConnection): String
+
+    /** Live model ids; empty when listing is unavailable. */
+    suspend fun listModels(connection: ServiceConnection): List<String>
 }

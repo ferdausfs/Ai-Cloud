@@ -129,14 +129,17 @@ fun SettingsScreen(
             ConnectionEditor(
                 connection = editing,
                 testState = state.connectionTests[editing.id] ?: TestState(),
+                modelList = state.modelLists[editing.id] ?: ModelListState(),
                 useCustomModel = editing.id in state.customModelIds,
                 onChange = viewModel::updateConnection,
+                onApiKeyChange = { viewModel.onApiKeyChanged(editing.id, it) },
                 onSelectPreset = { viewModel.selectOpenAiPreset(editing.id, it) },
                 onSelectModel = { model ->
                     viewModel.setUseCustomModel(editing.id, false)
                     viewModel.updateConnection(editing.copy(modelName = model))
                 },
                 onCustomModel = { viewModel.setUseCustomModel(editing.id, true) },
+                onLoadModels = { viewModel.loadModels(editing.id) },
                 onTest = { viewModel.testConnection(editing.id) },
                 onSave = viewModel::saveConnectionEdit,
                 onDelete = { viewModel.deleteConnection(editing.id) },
@@ -301,11 +304,14 @@ private fun ProviderRow(
 private fun ConnectionEditor(
     connection: ServiceConnection,
     testState: TestState,
+    modelList: ModelListState,
     useCustomModel: Boolean,
     onChange: (ServiceConnection) -> Unit,
+    onApiKeyChange: (String) -> Unit,
     onSelectPreset: (String) -> Unit,
     onSelectModel: (String) -> Unit,
     onCustomModel: () -> Unit,
+    onLoadModels: () -> Unit,
     onTest: () -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
@@ -384,24 +390,32 @@ private fun ConnectionEditor(
         Spacer(Modifier.height(10.dp))
         SecretField(
             value = connection.apiKey,
-            onValueChange = { onChange(connection.copy(apiKey = it)) },
+            onValueChange = onApiKeyChange,
             label = stringResource(R.string.settings_api_key),
         )
 
         Spacer(Modifier.height(10.dp))
-        val modelChoices = when (connection.type) {
+        val curated = when (connection.type) {
             ConnectionType.OLLAMA -> KNOWN_OLLAMA_CLOUD_MODELS
             ConnectionType.OPENAI_COMPATIBLE ->
                 SettingsViewModel.suggestedModelsFor(matchOpenAiPreset(connection.baseUrl).label)
             else -> emptyList()
         }
+        val modelChoices = modelList.models.ifEmpty { curated }
+        val loading = modelList.status == ModelListStatus.Loading
+        val forceCustom = useCustomModel ||
+            modelList.status == ModelListStatus.Failed ||
+            modelChoices.isEmpty()
         ModelPicker(
             modelName = connection.modelName,
             models = modelChoices,
-            useCustom = useCustomModel || modelChoices.isEmpty(),
+            useCustom = forceCustom,
+            loading = loading,
+            failedDetail = modelList.detail,
             onSelectModel = onSelectModel,
             onCustomModel = onCustomModel,
             onModelTextChange = { onChange(connection.copy(modelName = it)) },
+            onLoadModels = onLoadModels,
             onBackToList = {
                 val pick = connection.modelName.takeIf { it in modelChoices }
                     ?: modelChoices.firstOrNull().orEmpty()
@@ -440,11 +454,35 @@ private fun ModelPicker(
     modelName: String,
     models: List<String>,
     useCustom: Boolean,
+    loading: Boolean,
+    failedDetail: String,
     onSelectModel: (String) -> Unit,
     onCustomModel: () -> Unit,
     onModelTextChange: (String) -> Unit,
+    onLoadModels: () -> Unit,
     onBackToList: () -> Unit,
 ) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = stringResource(R.string.settings_model_name),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (loading) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            TextButton(onClick = onLoadModels, enabled = !loading) {
+                Text(stringResource(R.string.settings_load_models))
+            }
+        }
+    }
+    Spacer(Modifier.height(4.dp))
     if (!useCustom && models.isNotEmpty()) {
         var expanded by remember { mutableStateOf(false) }
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -491,10 +529,10 @@ private fun ModelPicker(
             modifier = Modifier.fillMaxWidth(),
             supportingText = {
                 Text(
-                    if (models.isEmpty()) {
-                        stringResource(R.string.settings_ollama_model_hint)
-                    } else {
-                        stringResource(R.string.settings_model_custom_hint)
+                    when {
+                        failedDetail.isNotBlank() -> failedDetail
+                        models.isEmpty() -> stringResource(R.string.settings_models_load_failed)
+                        else -> stringResource(R.string.settings_model_custom_hint)
                     },
                 )
             },

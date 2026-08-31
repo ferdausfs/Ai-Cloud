@@ -110,6 +110,14 @@ class LlmRouterImpl @Inject constructor(
             ConnectionType.GITHUB -> throw AppError.Configuration("Not an LLM connection.")
         }
 
+    override suspend fun listModels(connection: ServiceConnection): List<String> =
+        when (connection.type) {
+            ConnectionType.OLLAMA ->
+                ollama.listModels(connection.apiKey.trim().ifBlank { null })
+            ConnectionType.OPENAI_COMPATIBLE -> openAi.listModels(connection)
+            ConnectionType.GITHUB -> emptyList()
+        }
+
     private suspend fun invokeOne(
         conn: ServiceConnection,
         messages: List<OllamaMessage>,
