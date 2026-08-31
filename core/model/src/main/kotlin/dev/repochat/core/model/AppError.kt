@@ -15,6 +15,9 @@ sealed class AppError(
         OLLAMA("Ollama"),
         /** Generic OpenAI-compatible cloud LLM (Groq, Cerebras, OpenRouter, …). */
         LLM("LLM"),
+        CLOUDFLARE("Cloudflare"),
+        VERCEL("Vercel"),
+        FIREBASE("Firebase"),
     }
 
     /** 401 — missing/invalid/expired credential. */

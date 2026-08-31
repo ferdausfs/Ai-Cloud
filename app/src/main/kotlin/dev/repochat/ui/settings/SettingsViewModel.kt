@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.repochat.core.domain.ActiveRepoRepository
+import dev.repochat.core.domain.ExternalServices
 import dev.repochat.core.domain.LlmService
 import dev.repochat.core.domain.SaveSettingsUseCase
 import dev.repochat.core.domain.SettingsRepository
@@ -41,11 +42,13 @@ data class ModelListState(
 )
 
 data class SettingsUiState(
+    /** Legacy flat GitHub PAT — kept in sync with the GITHUB connection. */
     val githubPat: String = "",
+    /** Legacy flat GitHub test — only used when no GITHUB connection exists yet. */
+    val githubTest: TestState = TestState(),
     val connections: List<ServiceConnection> = emptyList(),
     val providerOrder: List<String> = emptyList(),
     val activeProviderId: String? = null,
-    val githubTest: TestState = TestState(),
     val connectionTests: Map<String, TestState> = emptyMap(),
     /** Per-connection: user chose free-text model entry. */
     val customModelIds: Set<String> = emptySet(),
@@ -63,6 +66,7 @@ class SettingsViewModel @Inject constructor(
     private val activeRepoRepository: ActiveRepoRepository,
     private val saveSettings: SaveSettingsUseCase,
     private val llm: LlmService,
+    private val external: ExternalServices,
     private val testGithub: TestGithubUseCase,
 ) : ViewModel() {
 
@@ -105,6 +109,12 @@ class SettingsViewModel @Inject constructor(
     fun onSavedFlashShown() = _uiState.update { it.copy(savedFlash = false) }
 
     fun startAddConnection(type: ConnectionType) {
+        if (type == ConnectionType.GITHUB && _uiState.value.connections.any { it.type == ConnectionType.GITHUB }) {
+            // One GitHub credential row is enough — edit the existing one.
+            val existing = _uiState.value.connections.first { it.type == ConnectionType.GITHUB }
+            _uiState.update { it.copy(editingConnectionId = existing.id) }
+            return
+        }
         val id = "new-${UUID.randomUUID()}"
         val draft = when (type) {
             ConnectionType.OLLAMA -> ServiceConnection(
@@ -126,7 +136,31 @@ class SettingsViewModel @Inject constructor(
                     modelName = suggestedModelsFor(preset.label).firstOrNull().orEmpty(),
                 )
             }
-            ConnectionType.GITHUB -> return
+            ConnectionType.GITHUB -> ServiceConnection(
+                id = id,
+                type = type,
+                label = "GitHub",
+                baseUrl = "https://api.github.com",
+                apiKey = _uiState.value.githubPat,
+            )
+            ConnectionType.CLOUDFLARE -> ServiceConnection(
+                id = id,
+                type = type,
+                label = "Cloudflare",
+                baseUrl = "https://api.cloudflare.com/client/v4",
+            )
+            ConnectionType.VERCEL -> ServiceConnection(
+                id = id,
+                type = type,
+                label = "Vercel",
+                baseUrl = "https://api.vercel.com",
+            )
+            ConnectionType.FIREBASE -> ServiceConnection(
+                id = id,
+                type = type,
+                label = "Firebase",
+                baseUrl = "https://firebase.googleapis.com/v1beta1",
+            )
         }
         _uiState.update {
             it.copy(
@@ -139,7 +173,9 @@ class SettingsViewModel @Inject constructor(
                     ),
             )
         }
-        loadModels(id)
+        if (type == ConnectionType.OLLAMA || type == ConnectionType.OPENAI_COMPATIBLE) {
+            loadModels(id)
+        }
     }
 
     fun startEditConnection(id: String) {
@@ -148,10 +184,11 @@ class SettingsViewModel @Inject constructor(
             conn == null -> false
             conn.type == ConnectionType.OLLAMA ->
                 conn.modelName.isNotBlank() && conn.modelName !in KNOWN_OLLAMA_CLOUD_MODELS
-            else -> {
+            conn.type == ConnectionType.OPENAI_COMPATIBLE -> {
                 val models = suggestedModelsFor(matchOpenAiPreset(conn.baseUrl).label)
                 conn.modelName.isNotBlank() && models.isNotEmpty() && conn.modelName !in models
             }
+            else -> false
         }
         _uiState.update { state ->
             val freeOnly = state.freeOnlyByConnection[id]
@@ -162,7 +199,9 @@ class SettingsViewModel @Inject constructor(
                 freeOnlyByConnection = state.freeOnlyByConnection + (id to freeOnly),
             )
         }
-        loadModels(id)
+        if (conn?.type == ConnectionType.OLLAMA || conn?.type == ConnectionType.OPENAI_COMPATIBLE) {
+            loadModels(id)
+        }
     }
 
     fun cancelEdit() = _uiState.update { it.copy(editingConnectionId = null) }
@@ -238,12 +277,16 @@ class SettingsViewModel @Inject constructor(
     fun onApiKeyChanged(connectionId: String, apiKey: String) {
         val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return
         updateConnection(conn.copy(apiKey = apiKey))
-        if (apiKey.trim().length >= 8) {
-            loadModels(connectionId, debounceMs = 600)
+        if (conn.type == ConnectionType.OLLAMA || conn.type == ConnectionType.OPENAI_COMPATIBLE) {
+            if (apiKey.trim().length >= 8) {
+                loadModels(connectionId, debounceMs = 600)
+            }
         }
     }
 
     fun loadModels(connectionId: String, debounceMs: Long = 0) {
+        val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return
+        if (conn.type != ConnectionType.OLLAMA && conn.type != ConnectionType.OPENAI_COMPATIBLE) return
         loadModelsJob?.cancel()
         loadModelsJob = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
@@ -312,6 +355,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun deleteConnection(id: String) {
+        val wasGithub = _uiState.value.connections.any { it.id == id && it.type == ConnectionType.GITHUB }
         _uiState.update { state ->
             state.copy(
                 connections = state.connections.filterNot { it.id == id },
@@ -319,6 +363,9 @@ class SettingsViewModel @Inject constructor(
                 activeProviderId = state.activeProviderId?.takeIf { it != id },
                 editingConnectionId = null,
                 customModelIds = state.customModelIds - id,
+                // Clear the legacy flat PAT so deleting GitHub does not get
+                // resurrected by the store migration on the next launch.
+                githubPat = if (wasGithub) "" else state.githubPat,
             )
         }
         viewModelScope.launch { persist() }
@@ -344,6 +391,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { persist() }
     }
 
+    /** Connection-wide Test Connection: LLM vs GitHub vs external services. */
     fun testConnection(id: String) {
         val conn = _uiState.value.connections.firstOrNull { it.id == id } ?: return
         if (_uiState.value.connectionTests[id]?.status == TestStatus.Testing) return
@@ -351,12 +399,29 @@ class SettingsViewModel @Inject constructor(
             it.copy(connectionTests = it.connectionTests + (id to TestState(TestStatus.Testing)))
         }
         viewModelScope.launch {
-            persist()
-            val result = try {
-                val detail = llm.test(conn)
-                true to "OK — $detail"
-            } catch (e: Exception) {
-                false to (e.message?.takeIf { it.isNotBlank() } ?: "Connection failed")
+            val result = when {
+                conn.type == ConnectionType.GITHUB -> {
+                    persist()
+                    val r = testGithub()
+                    r.ok to r.detail
+                }
+                conn.isLlm -> {
+                    persist()
+                    try {
+                        true to ("OK — " + llm.test(conn))
+                    } catch (e: Exception) {
+                        false to (e.message?.takeIf { it.isNotBlank() } ?: "Connection failed")
+                    }
+                }
+                else -> {
+                    persist()
+                    try {
+                        val detail = external.test(conn)
+                        true to detail
+                    } catch (e: Exception) {
+                        false to (e.message?.takeIf { it.isNotBlank() } ?: "Connection failed")
+                    }
+                }
             }
             _uiState.update {
                 it.copy(
@@ -371,19 +436,61 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun testGithubConnection() {
-        if (_uiState.value.githubTest.status == TestStatus.Testing) return
-        _uiState.update { it.copy(githubTest = TestState(TestStatus.Testing)) }
+    /** Vercel write: trigger a new deployment against the configured project. */
+    fun triggerVercelDeployment(id: String) {
+        val conn = _uiState.value.connections.firstOrNull { it.id == id } ?: return
+        if (conn.type != ConnectionType.VERCEL) return
+        val project = conn.projectId.trim()
+        if (project.isBlank()) return
+        if (_uiState.value.connectionTests[id]?.status == TestStatus.Testing) return
+        _uiState.update {
+            it.copy(connectionTests = it.connectionTests + (id to TestState(TestStatus.Testing)))
+        }
         viewModelScope.launch {
             persist()
-            val result = testGithub()
-            _uiState.update {
-                it.copy(
-                    githubTest = TestState(
-                        status = if (result.ok) TestStatus.Success else TestStatus.Failure,
-                        detail = result.detail,
-                    ),
-                )
+            try {
+                val detail = external.triggerDeployment(conn, project)
+                _uiState.update {
+                    it.copy(
+                        connectionTests = it.connectionTests + (
+                            id to TestState(TestStatus.Success, detail)
+                            ),
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        connectionTests = it.connectionTests + (
+                            id to TestState(
+                                TestStatus.Failure,
+                                e.message?.takeIf { it.isNotBlank() } ?: "Deployment failed",
+                            )
+                            ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Backwards-compatible entry for the legacy flat form (kept for callers). */
+    fun testGithubConnection() {
+        val github = _uiState.value.connections.firstOrNull { it.type == ConnectionType.GITHUB }
+        if (github != null) {
+            testConnection(github.id)
+        } else {
+            if (_uiState.value.githubTest?.status == TestStatus.Testing) return
+            _uiState.update { it.copy(githubTest = TestState(TestStatus.Testing)) }
+            viewModelScope.launch {
+                persist()
+                val result = testGithub()
+                _uiState.update {
+                    it.copy(
+                        githubTest = TestState(
+                            status = if (result.ok) TestStatus.Success else TestStatus.Failure,
+                            detail = result.detail,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -398,11 +505,15 @@ class SettingsViewModel @Inject constructor(
     private suspend fun persist() {
         val s = _uiState.value
         val primaryOllama = s.connections.firstOrNull { it.type == ConnectionType.OLLAMA }
+        val primaryGithub = s.connections.firstOrNull { it.type == ConnectionType.GITHUB }
         saveSettings(
             AppSettings(
                 ollamaKey = primaryOllama?.apiKey.orEmpty(),
                 modelName = primaryOllama?.modelName.orEmpty(),
-                githubPat = s.githubPat,
+                // If the user deleted the GitHub row, clear the legacy flat PAT
+                // instead of re-migrating it back on the next launch; the flat
+                // value is only a mirror of any GITHUB connection that exists.
+                githubPat = primaryGithub?.apiKey.orEmpty(),
                 connections = s.connections,
                 providerOrder = s.providerOrder,
                 activeProviderId = s.activeProviderId,

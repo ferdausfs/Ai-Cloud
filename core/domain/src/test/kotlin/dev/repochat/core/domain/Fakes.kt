@@ -306,6 +306,12 @@ class FakeChatRepository(
         stored.removeAll { it.repoKey == repoKey && it.sessionId == sessionId }
     }
 
+    override suspend fun hasApprovedWrite(repoKey: String, sessionId: String): Boolean =
+        stored.any {
+            it.repoKey == repoKey && it.sessionId == sessionId &&
+                it.kind == MessageKind.WRITE_FILE && it.status == MessageStatus.APPROVED
+        }
+
     private fun append(message: ChatMessage): Long {
         stored += message
         return message.id

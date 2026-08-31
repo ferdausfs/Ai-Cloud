@@ -104,6 +104,78 @@ class ErrorMappingTest {
     }
 
     @Test
+    fun `firebase oauth string error is surfaced`() {
+        val error = toAppError(
+            AppError.Provider.FIREBASE,
+            httpExceptionBlankReason(
+                400,
+                """{"error":"invalid_grant","error_description":"Invalid JWT Signature."}""",
+            ),
+        )
+        assertTrue(error is AppError.Api)
+        assertEquals("Invalid JWT Signature.", error.userMessage)
+    }
+
+    @Test
+    fun `cloudflare errors array message is surfaced for unknown code`() {
+        val error = toAppError(
+            AppError.Provider.CLOUDFLARE,
+            httpExceptionBlankReason(
+                400,
+                """{"success":false,"errors":[{"code":9109,"message":"Invalid access token"}]}""",
+            ),
+        )
+        assertTrue(error is AppError.Api)
+        assertEquals("Invalid access token", error.userMessage)
+    }
+
+    @Test
+    fun `cloudflare 403 keeps actionable provider message`() {
+        val error = toAppError(
+            AppError.Provider.CLOUDFLARE,
+            httpExceptionBlankReason(403, """{"success":false,"errors":[{"message":"denied"}]}"""),
+        )
+        assertTrue(error is AppError.RateLimited)
+        assertTrue(error.userMessage.contains("permissions"))
+    }
+
+    @Test
+    fun `vercel nested error message is surfaced for unknown code`() {
+        val error = toAppError(
+            AppError.Provider.VERCEL,
+            httpExceptionBlankReason(
+                500,
+                """{"error":{"code":"not_authorized","message":"Missing authorization header"}}""",
+            ),
+        )
+        assertTrue(error is AppError.Api)
+        assertEquals("Missing authorization header", error.userMessage)
+    }
+
+    @Test
+    fun `vercel 401 keeps actionable provider message`() {
+        val error = toAppError(
+            AppError.Provider.VERCEL,
+            httpExceptionBlankReason(401, """{"error":{"message":"denied"}}"""),
+        )
+        assertTrue(error is AppError.Unauthorized)
+        assertTrue(error.userMessage.contains("token"))
+    }
+
+    @Test
+    fun `firebase rest object error is surfaced`() {
+        val error = toAppError(
+            AppError.Provider.FIREBASE,
+            httpExceptionBlankReason(
+                404,
+                """{"error":{"code":404,"message":"Project not found","status":"NOT_FOUND"}}""",
+            ),
+        )
+        assertTrue(error is AppError.NotFound)
+        assertEquals("Project not found", error.userMessage)
+    }
+
+    @Test
     fun `github 422 nested errors message is preferred over Validation Failed`() {
         val body = """
             {

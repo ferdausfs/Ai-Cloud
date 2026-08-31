@@ -189,6 +189,9 @@ class ChatRepositoryImpl @Inject constructor(
         sessionDao.touch(repoKey, System.currentTimeMillis())
     }
 
+    override suspend fun hasApprovedWrite(repoKey: String, sessionId: String): Boolean =
+        messageDao.countApprovedWrites(repoKey, sessionId) > 0
+
     private suspend fun afterAppend(repoKey: String, text: String, isUser: Boolean) {
         val now = System.currentTimeMillis()
         sessionDao.touch(repoKey, now)

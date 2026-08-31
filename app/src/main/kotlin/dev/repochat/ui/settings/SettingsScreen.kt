@@ -3,6 +3,8 @@ package dev.repochat.ui.settings
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -147,6 +149,7 @@ fun SettingsScreen(
                 onFreeOnlyChange = { viewModel.setFreeOnly(editing.id, it) },
                 onLoadModels = { viewModel.loadModels(editing.id) },
                 onTest = { viewModel.testConnection(editing.id) },
+                onTriggerDeployment = viewModel::triggerVercelDeployment,
                 onSave = viewModel::saveConnectionEdit,
                 onDelete = { viewModel.deleteConnection(editing.id) },
                 modifier = Modifier
@@ -156,110 +159,163 @@ fun SettingsScreen(
                     .verticalScroll(rememberScrollState()),
             )
         } else {
-            Column(
+            SettingsHome(
+                state = state,
+                onStartEdit = viewModel::startEditConnection,
+                onStartAdd = viewModel::startAddConnection,
+                onMoveProvider = viewModel::moveProvider,
+                onSetActiveProvider = viewModel::setActiveProvider,
+                onTestConnection = viewModel::testConnection,
+                onSave = viewModel::save,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
                     .padding(horizontal = 20.dp)
                     .verticalScroll(rememberScrollState()),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsHome(
+    state: SettingsUiState,
+    onStartEdit: (String) -> Unit,
+    onStartAdd: (ConnectionType) -> Unit,
+    onMoveProvider: (String, Boolean) -> Unit,
+    onSetActiveProvider: (String) -> Unit,
+    onTestConnection: (String) -> Unit,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = stringResource(R.string.settings_ai_providers),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+        )
+        Text(
+            text = stringResource(R.string.settings_ai_providers_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        val llmConnections = state.connections.filter { it.type == ConnectionType.OLLAMA || it.type == ConnectionType.OPENAI_COMPATIBLE }
+        val ordered = state.providerOrder.mapNotNull { id ->
+            llmConnections.firstOrNull { it.id == id }
+        } + llmConnections.filter { it.id !in state.providerOrder }
+
+        ordered.forEach { conn ->
+            ProviderRow(
+                connection = conn,
+                isActive = state.activeProviderId == conn.id ||
+                    (state.activeProviderId == null && ordered.firstOrNull()?.id == conn.id),
+                onEdit = { onStartEdit(conn.id) },
+                onMoveUp = { onMoveProvider(conn.id, up = true) },
+                onMoveDown = { onMoveProvider(conn.id, up = false) },
+                onSetActive = { onSetActiveProvider(conn.id) },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onStartAdd(ConnectionType.OLLAMA) }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.settings_add_ollama))
+            }
+            OutlinedButton(
+                onClick = { onStartAdd(ConnectionType.OPENAI_COMPATIBLE) },
             ) {
-                Text(
-                    text = stringResource(R.string.settings_ai_providers),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                )
-                Text(
-                    text = stringResource(R.string.settings_ai_providers_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-
-                val ordered = state.providerOrder.mapNotNull { id ->
-                    state.connections.firstOrNull { it.id == id }
-                } + state.connections.filter {
-                    it.id !in state.providerOrder &&
-                        (it.type == ConnectionType.OLLAMA || it.type == ConnectionType.OPENAI_COMPATIBLE)
-                }
-
-                ordered.forEach { conn ->
-                    ProviderRow(
-                        connection = conn,
-                        isActive = state.activeProviderId == conn.id ||
-                            (state.activeProviderId == null && ordered.firstOrNull()?.id == conn.id),
-                        onEdit = { viewModel.startEditConnection(conn.id) },
-                        onMoveUp = { viewModel.moveProvider(conn.id, up = true) },
-                        onMoveDown = { viewModel.moveProvider(conn.id, up = false) },
-                        onSetActive = { viewModel.setActiveProvider(conn.id) },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { viewModel.startAddConnection(ConnectionType.OLLAMA) }) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.settings_add_ollama))
-                    }
-                    OutlinedButton(
-                        onClick = { viewModel.startAddConnection(ConnectionType.OPENAI_COMPATIBLE) },
-                    ) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.settings_add_openai))
-                    }
-                }
-
-                Spacer(Modifier.height(28.dp))
-                Text(
-                    text = stringResource(R.string.settings_github_section),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Spacer(Modifier.height(8.dp))
-                SecretField(
-                    value = state.githubPat,
-                    onValueChange = viewModel::onGithubPatChange,
-                    label = stringResource(R.string.settings_github_pat),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = viewModel::testGithubConnection) {
-                        Text(stringResource(R.string.settings_test))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    TestStatusLabel(state.githubTest)
-                }
-
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = viewModel::save,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                ) {
-                    Text(stringResource(R.string.settings_save))
-                }
-
-                Spacer(Modifier.height(24.dp))
-                val context = LocalContext.current
-                Text(
-                    text = stringResource(R.string.settings_battery_tip),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                        }
-                        runCatching { context.startActivity(intent) }
-                    },
-                ) {
-                    Text(stringResource(R.string.settings_battery_open))
-                }
-                Spacer(Modifier.height(32.dp))
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.settings_add_openai))
             }
         }
+
+        Spacer(Modifier.height(28.dp))
+        androidx.compose.material3.HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = stringResource(R.string.settings_services_section),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.settings_services_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+
+        val services = state.connections.filter {
+            it.type != ConnectionType.OLLAMA && it.type != ConnectionType.OPENAI_COMPATIBLE
+        }
+        services.forEach { conn ->
+            ServiceRow(
+                connection = conn,
+                testState = state.connectionTests[conn.id] ?: TestState(),
+                onEdit = { onStartEdit(conn.id) },
+                onTest = { onTestConnection(conn.id) },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onStartAdd(ConnectionType.GITHUB) }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.settings_add_github))
+            }
+            OutlinedButton(onClick = { onStartAdd(ConnectionType.CLOUDFLARE) }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.settings_add_cloudflare))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onStartAdd(ConnectionType.VERCEL) }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.settings_add_vercel))
+            }
+            OutlinedButton(onClick = { onStartAdd(ConnectionType.FIREBASE) }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.settings_add_firebase))
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onSave,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+        ) {
+            Text(stringResource(R.string.settings_save))
+        }
+
+        Spacer(Modifier.height(24.dp))
+        val context = LocalContext.current
+        Text(
+            text = stringResource(R.string.settings_battery_tip),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(
+            onClick = {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", context.packageName, null)
+                }
+                runCatching { context.startActivity(intent) }
+            },
+        ) {
+            Text(stringResource(R.string.settings_battery_open))
+        }
+        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -305,6 +361,51 @@ private fun ProviderRow(
     }
 }
 
+@Composable
+private fun ServiceRow(
+    connection: ServiceConnection,
+    testState: TestState,
+    onEdit: () -> Unit,
+    onTest: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = connection.label.ifBlank { connection.type.name },
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = serviceDetail(connection),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            TextButton(onClick = onTest) {
+                Text(stringResource(R.string.settings_test))
+            }
+            TextButton(onClick = onEdit) {
+                Text(stringResource(R.string.settings_edit))
+            }
+        }
+        TestStatusLabel(testState)
+    }
+}
+
+internal fun serviceDetail(connection: ServiceConnection): String = when (connection.type) {
+    ConnectionType.GITHUB -> "Personal access token"
+    ConnectionType.CLOUDFLARE -> "API token & Account ID"
+    ConnectionType.VERCEL -> "API token${connection.projectId.ifBlank { "" }.let { if (it.isNotBlank()) " · project $it" else "" }}"
+    ConnectionType.FIREBASE -> "Project ID + Web key / Service Account"
+    else -> connection.type.name
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConnectionEditor(
@@ -321,10 +422,13 @@ private fun ConnectionEditor(
     onFreeOnlyChange: (Boolean) -> Unit,
     onLoadModels: () -> Unit,
     onTest: () -> Unit,
+    onTriggerDeployment: (String) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val serviceAccountText = stringResource(R.string.settings_service_account_loaded)
     Column(modifier = modifier) {
         Spacer(Modifier.height(8.dp))
 
@@ -376,15 +480,6 @@ private fun ConnectionEditor(
                     }
                 },
             )
-
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = connection.label,
-                onValueChange = { onChange(connection.copy(label = it)) },
-                label = { Text(stringResource(R.string.settings_conn_label)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
         } else {
             OutlinedTextField(
                 value = connection.label,
@@ -399,49 +494,154 @@ private fun ConnectionEditor(
         SecretField(
             value = connection.apiKey,
             onValueChange = onApiKeyChange,
-            label = stringResource(R.string.settings_api_key),
+            label = apiKeyLabel(connection.type),
         )
 
-        Spacer(Modifier.height(10.dp))
-        val curated = when (connection.type) {
-            ConnectionType.OLLAMA -> KNOWN_OLLAMA_CLOUD_MODELS
-            ConnectionType.OPENAI_COMPATIBLE ->
-                SettingsViewModel.suggestedModelsFor(matchOpenAiPreset(connection.baseUrl).label)
-            else -> emptyList()
+        when (connection.type) {
+            ConnectionType.CLOUDFLARE -> {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = connection.accountId,
+                    onValueChange = { onChange(connection.copy(accountId = it)) },
+                    label = { Text(stringResource(R.string.settings_cloudflare_account_id)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = {
+                        Text(stringResource(R.string.settings_cloudflare_account_hint))
+                    },
+                )
+            }
+            ConnectionType.VERCEL -> {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = connection.projectId,
+                    onValueChange = { onChange(connection.copy(projectId = it)) },
+                    label = { Text(stringResource(R.string.settings_vercel_project)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = connection.teamId,
+                    onValueChange = { onChange(connection.copy(teamId = it)) },
+                    label = { Text(stringResource(R.string.settings_vercel_team)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = {
+                        Text(stringResource(R.string.settings_vercel_team_hint))
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { onTriggerDeployment(connection.id) },
+                    enabled = connection.projectId.isNotBlank() &&
+                        testState.status != TestStatus.Testing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.settings_vercel_trigger))
+                }
+            }
+            ConnectionType.FIREBASE -> {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = connection.projectId,
+                    onValueChange = { onChange(connection.copy(projectId = it)) },
+                    label = { Text(stringResource(R.string.settings_firebase_project)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.settings_firebase_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                val pickJson = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument(),
+                ) { uri: Uri? ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val json = try {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?.toString(Charsets.UTF_8).orEmpty()
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    if (json.isNotBlank()) {
+                        onChange(connection.copy(serviceAccountJson = json))
+                    }
+                }
+                if (connection.serviceAccountJson.isBlank()) {
+                    OutlinedButton(
+                        onClick = { pickJson.launch(arrayOf("application/json")) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.settings_firebase_pick_service_account))
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.CheckCircle,
+                            null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = serviceAccountText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            else -> Unit
         }
-        val allModels = SettingsViewModel.sortModelsFreeFirst(
-            modelList.models.ifEmpty { curated },
-        )
-        val hasFree = allModels.any { SettingsViewModel.isFreeModelId(it) }
-        val modelChoices = if (freeOnly && hasFree) {
-            allModels.filter { SettingsViewModel.isFreeModelId(it) }
-        } else {
-            allModels
+
+        if (connection.isLlm) {
+            Spacer(Modifier.height(10.dp))
+            val curated = when (connection.type) {
+                ConnectionType.OLLAMA -> KNOWN_OLLAMA_CLOUD_MODELS
+                ConnectionType.OPENAI_COMPATIBLE ->
+                    SettingsViewModel.suggestedModelsFor(matchOpenAiPreset(connection.baseUrl).label)
+                else -> emptyList()
+            }
+            val allModels = SettingsViewModel.sortModelsFreeFirst(
+                modelList.models.ifEmpty { curated },
+            )
+            val hasFree = allModels.any { SettingsViewModel.isFreeModelId(it) }
+            val modelChoices = if (freeOnly && hasFree) {
+                allModels.filter { SettingsViewModel.isFreeModelId(it) }
+            } else {
+                allModels
+            }
+            val loading = modelList.status == ModelListStatus.Loading
+            val forceCustom = useCustomModel ||
+                modelList.status == ModelListStatus.Failed ||
+                modelChoices.isEmpty()
+            ModelPicker(
+                modelName = connection.modelName,
+                models = modelChoices,
+                allModels = allModels,
+                useCustom = forceCustom,
+                loading = loading,
+                failedDetail = modelList.detail,
+                freeOnly = freeOnly,
+                showFreeFilter = hasFree,
+                onFreeOnlyChange = onFreeOnlyChange,
+                onSelectModel = onSelectModel,
+                onCustomModel = onCustomModel,
+                onModelTextChange = { onChange(connection.copy(modelName = it)) },
+                onLoadModels = onLoadModels,
+                onBackToList = {
+                    val pick = connection.modelName.takeIf { it in modelChoices }
+                        ?: modelChoices.firstOrNull().orEmpty()
+                    if (pick.isNotEmpty()) onSelectModel(pick)
+                },
+            )
         }
-        val loading = modelList.status == ModelListStatus.Loading
-        val forceCustom = useCustomModel ||
-            modelList.status == ModelListStatus.Failed ||
-            modelChoices.isEmpty()
-        ModelPicker(
-            modelName = connection.modelName,
-            models = modelChoices,
-            allModels = allModels,
-            useCustom = forceCustom,
-            loading = loading,
-            failedDetail = modelList.detail,
-            freeOnly = freeOnly,
-            showFreeFilter = hasFree,
-            onFreeOnlyChange = onFreeOnlyChange,
-            onSelectModel = onSelectModel,
-            onCustomModel = onCustomModel,
-            onModelTextChange = { onChange(connection.copy(modelName = it)) },
-            onLoadModels = onLoadModels,
-            onBackToList = {
-                val pick = connection.modelName.takeIf { it in modelChoices }
-                    ?: modelChoices.firstOrNull().orEmpty()
-                if (pick.isNotEmpty()) onSelectModel(pick)
-            },
-        )
 
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -467,6 +667,14 @@ private fun ConnectionEditor(
             Text(stringResource(R.string.settings_delete_connection))
         }
     }
+}
+
+internal fun apiKeyLabel(type: ConnectionType): String = when (type) {
+    ConnectionType.GITHUB -> "GitHub personal access token"
+    ConnectionType.CLOUDFLARE -> "Cloudflare API token"
+    ConnectionType.VERCEL -> "Vercel API token"
+    ConnectionType.FIREBASE -> "Web API key (optional with Service Account)"
+    else -> "API key"
 }
 
 @Composable

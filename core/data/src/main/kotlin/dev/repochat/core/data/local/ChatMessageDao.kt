@@ -8,6 +8,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ChatMessageDao {
 
+    /** 0/1 bounding check — true if the session has a committed write. */
+    @Query(
+        "SELECT COUNT(*) FROM chat_messages WHERE repo_key = :repoKey " +
+            "AND session_id = :sessionId AND kind = 'WRITE_FILE' AND status = 'APPROVED' LIMIT 1",
+    )
+    suspend fun countApprovedWrites(repoKey: String, sessionId: String): Int
+
     @Query(
         "SELECT * FROM chat_messages WHERE repo_key = :repoKey AND session_id = :sessionId " +
             "ORDER BY created_at ASC, id ASC",

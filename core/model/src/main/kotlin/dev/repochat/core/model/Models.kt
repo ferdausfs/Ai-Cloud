@@ -1,15 +1,31 @@
 package dev.repochat.core.model
 
 /**
- * How an LLM endpoint is reached. [OLLAMA] uses the bespoke Ollama Cloud API
+ * How an endpoint is reached. [OLLAMA] uses the bespoke Ollama Cloud API
  * (NDJSON). [OPENAI_COMPATIBLE] uses standard /v1/chat/completions.
+ * The remaining types are non-LLM services (GitHub, Cloudflare, Vercel,
+ * Firebase) that Settings exposes as typed credential rows so the app can
+ * grow beyond the AI provider configuration.
  */
 @kotlinx.serialization.Serializable
-enum class ConnectionType { OLLAMA, OPENAI_COMPATIBLE, GITHUB }
+enum class ConnectionType {
+    OLLAMA,
+    OPENAI_COMPATIBLE,
+    GITHUB,
+    CLOUDFLARE,
+    VERCEL,
+    FIREBASE,
+}
 
 /**
- * One configured service endpoint (LLM provider or, later, other APIs).
- * Multiple OPENAI_COMPATIBLE rows let the user keep Groq + Cerebras + etc.
+ * One configured service endpoint (LLM provider or other API).
+ * Multiple OPENAI_COMPATIBLE rows let the user keep Groq + Cerebras + etc;
+ * each non-LLM service can also have one or more rows with its own token.
+ *
+ * [apiKey] holds the provider key/PAT/token. [accountId] is used by Cloudflare,
+ * [projectId] by Vercel/Firebase, [teamId] by Vercel, and [serviceAccountJson]
+ * holds the raw Firebase service-account JSON when the user prefers admin
+ * level access over a simple Web API key.
  */
 @kotlinx.serialization.Serializable
 data class ServiceConnection(
@@ -22,7 +38,18 @@ data class ServiceConnection(
     val apiKey: String = "",
     /** Default model for this connection. */
     val modelName: String = "",
-)
+    /** Cloudflare account id (read-only v1 status endpoints). */
+    val accountId: String = "",
+    /** Vercel project name / Firebase project id. */
+    val projectId: String = "",
+    /** Vercel team id (optional). */
+    val teamId: String = "",
+    /** Raw Firebase service-account JSON (private_key etc.) when configured. */
+    val serviceAccountJson: String = "",
+) {
+    val isLlm: Boolean
+        get() = type == ConnectionType.OLLAMA || type == ConnectionType.OPENAI_COMPATIBLE
+}
 
 /** Result of a single LLM completion, including which connection answered. */
 data class LlmChatResult(

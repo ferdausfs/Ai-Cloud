@@ -167,4 +167,22 @@
     <string name="settings_model_free">Free</string>
     <string name="settings_model_paid">Paid</string>
     <string name="settings_model_free_only">Show free models only</string>
+
+    <!-- Settings: typed service connections -->
+    <string name="settings_services_section">Service connections</string>
+    <string name="settings_services_body">GitHub, Cloudflare, Vercel and Firebase are typed connections. Each uses its own credential form and Test Connection check; secrets stay in the encrypted store, never logged.</string>
+    <string name="settings_add_github">Add GitHub</string>
+    <string name="settings_add_cloudflare">Add Cloudflare</string>
+    <string name="settings_add_vercel">Add Vercel</string>
+    <string name="settings_add_firebase">Add Firebase</string>
+    <string name="settings_cloudflare_account_id">Account ID</string>
+    <string name="settings_cloudflare_account_hint">Read-only v1 status: zones + Worker scripts. Deploys need wrangler/CI and are not triggered from the phone.</string>
+    <string name="settings_vercel_project">Project name</string>
+    <string name="settings_vercel_team">Team ID (optional)</string>
+    <string name="settings_vercel_team_hint">Leave blank for personal-account deployments.</string>
+    <string name="settings_vercel_trigger">Trigger production deployment</string>
+    <string name="settings_firebase_project">Project ID</string>
+    <string name="settings_firebase_note">Firebase uses OAuth2 token exchange, so it is more involved than token-based services. A Web API key covers simple config reads; a Service Account JSON enables admin-level calls and is stored encrypted.</string>
+    <string name="settings_firebase_pick_service_account">Pick Service Account JSON</string>
+    <string name="settings_service_account_loaded">Service Account JSON loaded (stored encrypted)</string>
 </resources>

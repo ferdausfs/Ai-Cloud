@@ -107,7 +107,10 @@ class LlmRouterImpl @Inject constructor(
                 }
             }
             ConnectionType.OPENAI_COMPATIBLE -> openAi.test(connection)
-            ConnectionType.GITHUB -> throw AppError.Configuration("Not an LLM connection.")
+            ConnectionType.GITHUB,
+            ConnectionType.CLOUDFLARE,
+            ConnectionType.VERCEL,
+            ConnectionType.FIREBASE -> throw AppError.Configuration("Not an LLM connection.")
         }
 
     override suspend fun listModels(connection: ServiceConnection): List<String> =
@@ -115,7 +118,10 @@ class LlmRouterImpl @Inject constructor(
             ConnectionType.OLLAMA ->
                 ollama.listModels(connection.apiKey.trim().ifBlank { null })
             ConnectionType.OPENAI_COMPATIBLE -> openAi.listModels(connection)
-            ConnectionType.GITHUB -> emptyList()
+            ConnectionType.GITHUB,
+            ConnectionType.CLOUDFLARE,
+            ConnectionType.VERCEL,
+            ConnectionType.FIREBASE -> emptyList()
         }
 
     private suspend fun invokeOne(
@@ -138,7 +144,10 @@ class LlmRouterImpl @Inject constructor(
             )
         }
         ConnectionType.OPENAI_COMPATIBLE -> openAi.chat(conn, messages, jsonMode)
-        ConnectionType.GITHUB -> throw AppError.Configuration("Not an LLM connection.")
+        ConnectionType.GITHUB,
+        ConnectionType.CLOUDFLARE,
+        ConnectionType.VERCEL,
+        ConnectionType.FIREBASE -> throw AppError.Configuration("Not an LLM connection.")
     }
 
     private fun isRateLimitLike(e: AppError): Boolean {

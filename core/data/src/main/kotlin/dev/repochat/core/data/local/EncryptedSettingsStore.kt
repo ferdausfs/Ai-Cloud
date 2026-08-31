@@ -56,6 +56,20 @@ class EncryptedSettingsStore private constructor(
                 ),
             ) + connections
         }
+        // Migrate the pre-typed GitHub flat PAT into a GITHUB connection so it
+        // appears in the new typed Settings list and is not lost.
+        if (connections.none { it.type == ConnectionType.GITHUB } && githubPat.isNotBlank()) {
+            connections += ServiceConnection(
+                id = prefs.getString(KEY_LEGACY_GITHUB_ID, null)
+                    ?: UUID.randomUUID().toString().also {
+                        prefs.edit().putString(KEY_LEGACY_GITHUB_ID, it).apply()
+                    },
+                type = ConnectionType.GITHUB,
+                label = "GitHub",
+                baseUrl = "https://api.github.com",
+                apiKey = githubPat,
+            )
+        }
         val orderRaw = prefs.getString(KEY_PROVIDER_ORDER, null)
         val order = if (orderRaw.isNullOrBlank()) {
             connections.filter {
@@ -81,10 +95,11 @@ class EncryptedSettingsStore private constructor(
             settings.connections,
         )
         val primaryOllama = settings.connections.firstOrNull { it.type == ConnectionType.OLLAMA }
+        val primaryGithub = settings.connections.firstOrNull { it.type == ConnectionType.GITHUB }
         prefs.edit()
             .putString(KEY_OLLAMA_KEY, (primaryOllama?.apiKey ?: settings.ollamaKey).trim())
             .putString(KEY_MODEL_NAME, (primaryOllama?.modelName ?: settings.modelName).trim())
-            .putString(KEY_GITHUB_PAT, settings.githubPat.trim())
+            .putString(KEY_GITHUB_PAT, (primaryGithub?.apiKey ?: settings.githubPat).trim())
             .putString(KEY_CONNECTIONS, connectionsJson)
             .putString(KEY_PROVIDER_ORDER, settings.providerOrder.joinToString(","))
             .putString(KEY_ACTIVE_PROVIDER, settings.activeProviderId.orEmpty())
@@ -100,6 +115,7 @@ class EncryptedSettingsStore private constructor(
         private const val KEY_PROVIDER_ORDER = "provider_order_csv"
         private const val KEY_ACTIVE_PROVIDER = "active_provider_id"
         private const val KEY_LEGACY_OLLAMA_ID = "legacy_ollama_connection_id"
+        private const val KEY_LEGACY_GITHUB_ID = "legacy_github_connection_id"
 
         fun create(context: Context): EncryptedSettingsStore {
             val masterKey = MasterKey.Builder(context)

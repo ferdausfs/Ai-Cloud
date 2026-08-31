@@ -201,21 +201,34 @@ class AiEditOrchestrator @Inject constructor(
                 }
 
                 is AiAction.CreatePullRequest -> {
-                    emit(TurnEvent.Working("Opening pull request"))
-                    val info = github.createPullRequest(
-                        owner = request.owner,
-                        repo = request.repo,
-                        head = branch,
-                        base = request.defaultBranch,
-                        title = action.title,
-                        body = action.body,
-                    )
-                    emit(TurnEvent.PullRequestCreated(info))
-                    val context = "PULL REQUEST CREATED - #${info.number} \"${info.title}\"\n" +
-                        "URL: ${info.htmlUrl}\n" +
-                        "Head: $branch → base: ${request.defaultBranch}\n" +
-                        "Tell the user the PR is ready and share the URL. Merging stays a manual step."
-                    messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
+                    if (!chat.hasApprovedWrite(request.repoKey, request.sessionId)) {
+                        // Hard guard (tool contract): never open a PR without at
+                        // least one committed write_file this session. Feed the
+                        // reason back to the model instead of failing silently.
+                        val denied = "PR NOT CREATED - You asked to open a pull request, but this session " +
+                            "has no committed write_file yet. Open a PR ONLY after you have committed a real change. " +
+                            "Use write_file first (and get approval), then respond with a reply telling the user " +
+                            "a PR can be opened after the change is committed."
+                        messages = PromptBuilder.cap(
+                            messages + OllamaMessage(OllamaRole.USER, denied),
+                        )
+                    } else {
+                        emit(TurnEvent.Working("Opening pull request"))
+                        val info = github.createPullRequest(
+                            owner = request.owner,
+                            repo = request.repo,
+                            head = branch,
+                            base = request.defaultBranch,
+                            title = action.title,
+                            body = action.body,
+                        )
+                        emit(TurnEvent.PullRequestCreated(info))
+                        val context = "PULL REQUEST CREATED - #${info.number} \"${info.title}\"\n" +
+                            "URL: ${info.htmlUrl}\n" +
+                            "Head: $branch → base: ${request.defaultBranch}\n" +
+                            "Tell the user the PR is ready and share the URL. Merging stays a manual step."
+                        messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
+                    }
                 }
 
                 is AiAction.CheckCiStatus -> {

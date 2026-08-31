@@ -4,6 +4,7 @@ import dev.repochat.core.model.AppError
 import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.GitFile
 import dev.repochat.core.model.MessageStatus
+import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.TurnEvent
 import dev.repochat.core.model.TurnRequest
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -203,13 +204,52 @@ class AiEditOrchestratorTest {
             ),
         )
         val github = FakeGithubService()
-        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        val chat = FakeChatRepository().apply {
+            val pending = appendAiWritePending(
+                "acme/demo",
+                "testsess1",
+                PendingChange(
+                    path = "src/Main.kt",
+                    oldContent = "",
+                    newContent = "fun main() {}",
+                    baseSha = "sha",
+                    branch = "ai-chat/testsess1",
+                    commitMessage = "fix: add main",
+                    isNew = true,
+                    additions = 1,
+                    removals = 0,
+                ),
+            )
+            markWrite(pending, MessageStatus.APPROVED, "new-sha")
+        }
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
 
         assertEquals(Triple("ai-chat/testsess1", "main", "AI fixes"), github.lastPrArgs)
         assertTrue(events.any { it is TurnEvent.PullRequestCreated })
         assertTrue(events.any { it is TurnEvent.Reply && it.text.contains("PR is up") })
         assertTrue(ollama.lastMessages.any { it.content.contains("PULL REQUEST CREATED") })
+    }
+
+    @Test
+    fun `create_pull_request is blocked until a write is committed`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"create_pull_request","title":"no writes yet","body":"should not open"}""",
+                    """{"action":"reply","message":"ok"}""",
+                ),
+            ),
+        )
+        val github = FakeGithubService()
+        val orchestrator = AiEditOrchestrator(
+            ollama, github, FakeChatRepository(), FakeSettingsRepository(),
+        )
+        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertNull(github.lastPrArgs)
+        assertTrue(events.none { it is TurnEvent.PullRequestCreated })
+        assertTrue(ollama.lastMessages.any { it.content.contains("PR NOT CREATED") })
     }
 
     @Test

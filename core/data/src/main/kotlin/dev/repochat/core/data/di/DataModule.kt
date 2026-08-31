@@ -12,10 +12,15 @@ import dev.repochat.core.data.local.AppDatabase
 import dev.repochat.core.data.local.ChatMessageDao
 import dev.repochat.core.data.local.EncryptedSettingsStore
 import dev.repochat.core.data.local.RepoSessionDao
+import dev.repochat.core.data.remote.CloudflareApi
+import dev.repochat.core.data.remote.FirebaseApi
 import dev.repochat.core.data.remote.GithubApi
 import dev.repochat.core.data.remote.GithubAuthInterceptor
 import dev.repochat.core.data.remote.OllamaApi
+import dev.repochat.core.data.remote.VercelApi
+import dev.repochat.core.domain.ExternalServices
 import dev.repochat.core.domain.LlmService
+import dev.repochat.core.data.repository.ExternalServicesImpl
 import dev.repochat.core.data.repository.LlmRouterImpl
 import dev.repochat.core.data.remote.OpenAiCompatibleApi
 import dev.repochat.core.data.remote.OllamaAuthInterceptor
@@ -69,6 +74,10 @@ abstract class DataModule {
     @Binds
     @Singleton
     abstract fun bindAiTurnRunner(impl: AiEditOrchestrator): AiTurnRunner
+
+    @Binds
+    @Singleton
+    abstract fun bindExternalServices(impl: ExternalServicesImpl): ExternalServices
 
     companion object {
 
@@ -137,6 +146,54 @@ abstract class DataModule {
                 .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
                 .build()
                 .create(OpenAiCompatibleApi::class.java)
+        }
+
+        @Provides
+        @Singleton
+        fun provideCloudflareApi(json: Json): CloudflareApi {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            return Retrofit.Builder()
+                .baseUrl("https://api.cloudflare.com/client/v4/")
+                .client(client)
+                .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+                .build()
+                .create(CloudflareApi::class.java)
+        }
+
+        @Provides
+        @Singleton
+        fun provideVercelApi(json: Json): VercelApi {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            return Retrofit.Builder()
+                .baseUrl("https://api.vercel.com/")
+                .client(client)
+                .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+                .build()
+                .create(VercelApi::class.java)
+        }
+
+        @Provides
+        @Singleton
+        fun provideFirebaseApi(json: Json): FirebaseApi {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            return Retrofit.Builder()
+                .baseUrl("https://firebase.googleapis.com/v1beta1/")
+                .client(client)
+                .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+                .build()
+                .create(FirebaseApi::class.java)
         }
 
         @Provides

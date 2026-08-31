@@ -8,8 +8,10 @@ Approve/Reject gate before anything is written.
 ## Highlights
 
 - **AI tool-calling loop** — the model answers with strict JSON
-  (`read_file` / `write_file` / `reply`). It can request files it needs; those
-  contents are fed back into the context until it writes or replies.
+  (`read_file` / `write_file` / `create_pull_request` / `check_ci_status` /
+  `reply`). It can read files it needs, propose edits, check CI, and (only
+  after a committed write) open a PR — programmatically guarded, not just
+  prompt-hinted.
 - **Human-in-the-loop commits** — every proposed change is shown as a
   color-coded line diff with **Approve & commit / Reject** before the GitHub
   API is called.
@@ -17,15 +19,26 @@ Approve/Reject gate before anything is written.
   (`ai-chat/<session-id>`), created from the default branch HEAD, visible as a
   chip in the chat screen. A **Create pull request** action opens a PR into the
   default branch; merging stays a manual step on GitHub.
-- **Secure credential storage** — API keys / GitHub PAT live in
-  `EncryptedSharedPreferences` (Android Keystore-backed AES-256), excluded from
-  backups. Chat history is persisted in Room per repository.
-- **Polished UI** — dark mode, intentional color/type system, shared-element
-  transitions between repo picker and chat, animated message bubbles, animated
-  typing indicator, empty/error states with retry affordances.
-- **Robust error handling** — typed errors (401 → Settings shortcut, 403/429 →
-  friendly rate-limit message, 409 → re-read guidance, network → retry),
-  truncated file trees for large repos, size-capped LLM context.
+- **Autonomous CI fix loop** — an opt-in "Auto-fix until CI passes" toggle runs
+  edit → commit → poll CI → read the real Actions failure log (tail ~8k chars)
+  → fix → repeat up to 5 attempts, under a foreground service, streaming every
+  step as chat bubbles.
+- **Multi-provider LLM routing** — Ollama Cloud plus any OpenAI-compatible
+  endpoint (Groq, Cerebras, OpenRouter, Together.ai, Fireworks, custom), preset
+  provider dropdowns, live `/models` dropdowns (manual fallback), OpenRouter
+  free-model-first sorting with a default "free only" filter, a reorderable
+  priority list, and automatic fallback on rate limits with a chat note.
+- **Multi-service connections** — Settings is a list of typed connections:
+  GitHub (PAT), Cloudflare (API token + Account ID, read-only status), Vercel
+  (read + trigger deployment), and Firebase (Web API key or Service Account
+  JSON with OAuth2 token exchange), each with a Test Connection check.
+- **Secure credential storage** — all keys / tokens / Service Account JSON live
+  in `EncryptedSharedPreferences` (Android Keystore-backed AES-256), excluded
+  from backups. Chat history is persisted in Room per repository.
+- **Polished UI** — drawer shell with searchable chats, general/repo chat modes,
+  repos + file-tree browser, markdown rendering with ChatGPT-style code cards
+  (copy + collapse), dark mode, shared-element transitions, animated bubbles,
+  empty/error states, and a top-of-chat provider switcher.
 
 ## Architecture
 
@@ -84,15 +97,17 @@ nothing is hardcoded in build scripts.
 
 `.github/workflows/android.yml` does two things:
 
-1. **Build** — on every push it runs `:app:assembleDebug` plus the full unit
-   test suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
-   `:app:testDebugUnitTest`) and uploads the debug APK as an artifact.
-2. **Auto-merge into `main`** — once the working branch
-   (`arena/01a04eb6-ai-cloud`) is **green**, a second job automatically merges
-   it into `main` with a merge commit (`--no-ff`) and pushes. No manual push is
-   needed, and `main` can never receive a red commit because the merge job
-   only runs after the build job succeeds. Pushing to `main` does not
-   re-trigger the workflow (the push filter only includes the working branch).
+1. **Build on every branch** — `on.push.branches: ["**"]` and `pull_request`
+   trigger lint, `:app:assembleDebug`, the full unit test suite
+   (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
+   `:app:testDebugUnitTest`), connected tests, and a dependency scan. This is
+   what makes the app's `check_ci_status` / auto-fix loop able to see CI on any
+   AI-created working branch.
+2. **Auto-merge into `main`** — once an `ai-chat/*` working branch is **green**,
+   a second job merges it into `main` with a merge commit (`--no-ff`) and
+   pushes. No manual push is needed, and `main` can never receive a red commit
+   because the merge job only runs after the build job succeeds. The merge job
+   is explicitly filtered to `refs/heads/ai-chat/*`.
 
 Note: the app itself still never writes to `main` — AI commits always land on
 `ai-chat/<session-id>` working branches. The CI auto-merge only moves the

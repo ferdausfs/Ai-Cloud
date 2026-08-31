@@ -47,6 +47,13 @@ interface ChatRepository {
     suspend fun markWrite(id: Long, status: MessageStatus, newSha: String?)
 
     suspend fun clearMessages(repoKey: String, sessionId: String)
+
+    /**
+     * True when this session already has at least one approved/committed
+     * write. The AI tool contract requires this before `create_pull_request`
+     * is allowed, because a PR with no committed work is never useful.
+     */
+    suspend fun hasApprovedWrite(repoKey: String, sessionId: String): Boolean
 }
 
 /** The repository the user is currently chatting with. */
