@@ -129,24 +129,18 @@ fun ChatBubble(
     messageId: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
-    val shape = if (isUser) {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp)
-    } else {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 6.dp, bottomEnd = 20.dp)
-    }
-    val contentColor = if (isUser) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
+    // HuggingChat-like: soft user tint, plain assistant text.
+    val shape = RoundedCornerShape(12.dp)
+    val contentColor = MaterialTheme.colorScheme.onSurface
     Surface(
         shape = shape,
         color = if (isUser) {
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
+            MaterialTheme.colorScheme.background
         },
         contentColor = contentColor,
+        tonalElevation = 0.dp,
         modifier = modifier
             .fillMaxWidth(0.92f)
             .bubbleIn(key = "$messageId-$text".hashCode()),

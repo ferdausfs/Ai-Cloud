@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.repochat.R
 import dev.repochat.core.domain.ChatRepository
+import dev.repochat.core.domain.SettingsRepository
 import dev.repochat.core.domain.CreatePullRequestUseCase
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
 import dev.repochat.core.model.ChatMode
+import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoSession
@@ -73,6 +75,9 @@ data class ChatUiState(
     val autoFixActive: Boolean = false,
     val autoFixAttempt: Int = 0,
     val autoFixMaxAttempts: Int = 0,
+    val llmProviders: List<ServiceConnection> = emptyList(),
+    val activeProviderId: String? = null,
+    val activeProviderLabel: String = "",
 )
 
 /**
@@ -85,6 +90,7 @@ class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val createPullRequest: CreatePullRequestUseCase,
     private val turnCoordinator: AiTurnCoordinator,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -99,6 +105,30 @@ class ChatViewModel @Inject constructor(
     private var messageJob: Job? = null
     private var turnObserveJob: Job? = null
     private var snackbarCounter = 0L
+
+    init {
+        viewModelScope.launch {
+            settingsRepository.settings.collect { s ->
+                val ordered = s.llmConnectionsOrdered()
+                val active = s.activeLlmOrFirst()
+                _uiState.update {
+                    it.copy(
+                        llmProviders = ordered,
+                        activeProviderId = active?.id,
+                        activeProviderLabel = active?.label?.ifBlank { active.modelName }
+                            ?: s.modelName.ifBlank { "—" },
+                    )
+                }
+            }
+        }
+    }
+
+    fun setActiveProvider(id: String) {
+        viewModelScope.launch {
+            val cur = settingsRepository.current()
+            settingsRepository.save(cur.copy(activeProviderId = id))
+        }
+    }
 
     /**
      * @param mode GENERAL or REPO
@@ -289,6 +319,7 @@ class ChatViewModel @Inject constructor(
                 attachment = attachment,
                 mode = mode,
                 autoFixUntilCiGreen = autoFix,
+                preferredConnectionId = _uiState.value.activeProviderId,
             )
             // Runs in the application-scoped coordinator + FGS — not viewModelScope.
             turnCoordinator.startTurn(request)
