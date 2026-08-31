@@ -55,7 +55,6 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.InsertDriveFile
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -149,7 +148,6 @@ fun ChatScreen(
     var showBranchInfo by rememberSaveable { mutableStateOf(false) }
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
     var showMenu by rememberSaveable { mutableStateOf(false) }
-    var showProviderMenu by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(owner, repo, defaultBranch, mode, repoKey) {
         val chatMode = if (mode.equals("GENERAL", ignoreCase = true)) {
@@ -265,49 +263,6 @@ fun ChatScreen(
                                         },
                                     ),
                             )
-                        }
-                        // Provider / model switcher (HuggingChat-style top control).
-                        Spacer(Modifier.width(8.dp))
-                        Box {
-                            InfoChip(
-                                text = state.activeProviderLabel.ifBlank { "Model" },
-                                icon = Icons.Rounded.KeyboardArrowDown,
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.bounce { showProviderMenu = true },
-                            )
-                            DropdownMenu(
-                                expanded = showProviderMenu,
-                                onDismissRequest = { showProviderMenu = false },
-                            ) {
-                                if (state.llmProviders.isEmpty()) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.chat_no_providers)) },
-                                        onClick = {
-                                            showProviderMenu = false
-                                            onOpenSettings()
-                                        },
-                                    )
-                                } else {
-                                    state.llmProviders.forEach { conn ->
-                                        val selected = conn.id == state.activeProviderId
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    buildString {
-                                                        append(conn.label.ifBlank { conn.modelName })
-                                                        if (selected) append("  ✓")
-                                                    },
-                                                )
-                                            },
-                                            onClick = {
-                                                showProviderMenu = false
-                                                viewModel.setActiveProvider(conn.id)
-                                            },
-                                        )
-                                    }
-                                }
-                            }
                         }
                         if (!isGeneral && workingBranch != null) {
                             Spacer(Modifier.width(8.dp))

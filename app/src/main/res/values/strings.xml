@@ -139,20 +139,4 @@
     <string name="repo_tree_empty_body">No files found on this branch.</string>
     <string name="repo_file_binary">Binary file — cannot preview in the app.</string>
     <string name="tab_settings">Settings</string>
-    <string name="home_open_drawer">Open menu</string>
-    <string name="home_empty_title">Start a chat</string>
-    <string name="home_empty_body">Open the menu for history, or tap + for a new conversation.</string>
-    <string name="chats_search">Search chats</string>
-    <string name="settings_ai_providers">AI providers</string>
-    <string name="settings_ai_providers_body">Order is fallback priority. The active provider is tried first; on rate-limit the next is used automatically.</string>
-    <string name="settings_add_ollama">Ollama</string>
-    <string name="settings_add_openai">OpenAI-compatible</string>
-    <string name="settings_edit_connection">Edit connection</string>
-    <string name="settings_conn_label">Label</string>
-    <string name="settings_base_url">Base URL</string>
-    <string name="settings_api_key">API key</string>
-    <string name="settings_use">Use</string>
-    <string name="settings_edit">Edit</string>
-    <string name="settings_delete_connection">Delete connection</string>
-    <string name="chat_no_providers">Add a provider in Settings</string>
 </resources>

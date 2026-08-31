@@ -15,9 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import dev.repochat.ui.chat.ChatScreen
 import dev.repochat.ui.home.HomeScaffold
-import dev.repochat.ui.repopicker.RepoPickerScreen
 import dev.repochat.ui.repos.RepoDetailScreen
-import dev.repochat.ui.settings.SettingsScreen
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -45,48 +43,38 @@ fun AppNavHost(
     ) {
         composable<HomeRoute> {
             HomeScaffold(
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = this,
                 onOpenChat = { owner, repo, defaultBranch, mode, repoKey ->
                     navController.navigate(
-                        ChatRoute(owner, repo, defaultBranch, mode, repoKey),
-                    ) { launchSingleTop = true }
+                        ChatRoute(
+                            owner = owner,
+                            repo = repo,
+                            defaultBranch = defaultBranch,
+                            mode = mode,
+                            repoKey = repoKey,
+                        ),
+                    ) {
+                        launchSingleTop = true
+                    }
                 },
                 onOpenGeneralChat = {
                     navController.navigate(
-                        ChatRoute("", "", "", "GENERAL", ""),
-                    ) { launchSingleTop = true }
+                        ChatRoute(
+                            owner = "",
+                            repo = "",
+                            defaultBranch = "",
+                            mode = "GENERAL",
+                            repoKey = "",
+                        ),
+                    ) {
+                        launchSingleTop = true
+                    }
                 },
                 onOpenRepoDetail = { owner, repo, defaultBranch ->
                     navController.navigate(RepoDetailRoute(owner, repo, defaultBranch)) {
                         launchSingleTop = true
                     }
-                },
-                onOpenRepos = {
-                    navController.navigate(RepoPickerRoute) { launchSingleTop = true }
-                },
-                onOpenSettings = {
-                    navController.navigate(SettingsRoute) { launchSingleTop = true }
-                },
-            )
-        }
-
-        composable<SettingsRoute> {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-            )
-        }
-
-        composable<RepoPickerRoute> {
-            RepoPickerScreen(
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = this,
-                onBack = { navController.popBackStack() },
-                onOpenSettings = {
-                    navController.navigate(SettingsRoute) { launchSingleTop = true }
-                },
-                onRepoSelected = { repo ->
-                    navController.navigate(
-                        RepoDetailRoute(repo.owner, repo.name, repo.defaultBranch),
-                    ) { launchSingleTop = true }
                 },
             )
         }
@@ -107,7 +95,9 @@ fun AppNavHost(
                             mode = "REPO",
                             repoKey = "${route.owner}/${route.repo}",
                         ),
-                    ) { launchSingleTop = true }
+                    ) {
+                        launchSingleTop = true
+                    }
                 },
             )
         }
@@ -128,7 +118,10 @@ fun AppNavHost(
                     }
                 },
                 onOpenSettings = {
-                    navController.navigate(SettingsRoute) { launchSingleTop = true }
+                    navController.navigate(HomeRoute) {
+                        popUpTo(HomeRoute) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 },
             )
         }

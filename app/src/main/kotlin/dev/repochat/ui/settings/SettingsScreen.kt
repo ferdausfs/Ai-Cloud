@@ -3,30 +3,42 @@ package dev.repochat.ui.settings
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,8 +49,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -50,6 +62,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,13 +73,20 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.repochat.R
-import dev.repochat.core.model.ConnectionType
-import dev.repochat.core.model.ServiceConnection
+import dev.repochat.core.model.ActiveRepo
+import dev.repochat.ui.components.InfoChip
+import dev.repochat.ui.theme.Indigo400
+import dev.repochat.ui.theme.Teal400
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onBack: (() -> Unit)? = null,
+    onBrowseRepos: () -> Unit,
+    onResumeRepo: (owner: String, repo: String, defaultBranch: String) -> Unit,
+    onOpenGeneralChat: () -> Unit = {},
+    onOpenChats: () -> Unit = {},
+    /** Hide legacy browse CTA when Settings lives under tabs. */
+    embeddedInTabs: Boolean = false,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -80,10 +101,6 @@ fun SettingsScreen(
         }
     }
 
-    val editing = state.editingConnectionId?.let { id ->
-        state.connections.firstOrNull { it.id == id }
-    }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
@@ -91,27 +108,9 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (editing != null) {
-                            stringResource(R.string.settings_edit_connection)
-                        } else {
-                            stringResource(R.string.settings_title)
-                        },
+                        text = stringResource(R.string.settings_title),
+                        style = MaterialTheme.typography.titleLarge,
                     )
-                },
-                navigationIcon = {
-                    if (onBack != null || editing != null) {
-                        IconButton(
-                            onClick = {
-                                if (editing != null) viewModel.cancelEdit()
-                                else onBack?.invoke()
-                            },
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = stringResource(R.string.chat_back),
-                            )
-                        }
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -119,292 +118,367 @@ fun SettingsScreen(
             )
         },
     ) { padding ->
-        if (editing != null) {
-            ConnectionEditor(
-                connection = editing,
-                testState = state.connectionTests[editing.id] ?: TestState(),
-                onChange = viewModel::updateConnection,
-                onTest = { viewModel.testConnection(editing.id) },
-                onSave = viewModel::saveConnectionEdit,
-                onDelete = { viewModel.deleteConnection(editing.id) },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState()),
-            )
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_ai_providers),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                )
-                Text(
-                    text = stringResource(R.string.settings_ai_providers_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+        ) {
+            // Brand header
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(
+                            brush = Brush.linearGradient(listOf(Indigo400, Teal400)),
+                            shape = CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Code,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = stringResource(R.string.app_tagline),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // Ollama section
+            SectionCard(title = stringResource(R.string.settings_ollama_section)) {
+                SecretField(
+                    value = state.ollamaKey,
+                    onValueChange = viewModel::onOllamaKeyChange,
+                    label = stringResource(R.string.settings_ollama_key),
+                    leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null) },
                 )
                 Spacer(Modifier.height(12.dp))
-
-                val ordered = state.providerOrder.mapNotNull { id ->
-                    state.connections.firstOrNull { it.id == id }
-                } + state.connections.filter {
-                    it.id !in state.providerOrder &&
-                        (it.type == ConnectionType.OLLAMA || it.type == ConnectionType.OPENAI_COMPATIBLE)
-                }
-
-                ordered.forEach { conn ->
-                    ProviderRow(
-                        connection = conn,
-                        isActive = state.activeProviderId == conn.id ||
-                            (state.activeProviderId == null && ordered.firstOrNull()?.id == conn.id),
-                        onEdit = { viewModel.startEditConnection(conn.id) },
-                        onMoveUp = { viewModel.moveProvider(conn.id, up = true) },
-                        onMoveDown = { viewModel.moveProvider(conn.id, up = false) },
-                        onSetActive = { viewModel.setActiveProvider(conn.id) },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { viewModel.startAddConnection(ConnectionType.OLLAMA) }) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.settings_add_ollama))
-                    }
-                    OutlinedButton(
-                        onClick = { viewModel.startAddConnection(ConnectionType.OPENAI_COMPATIBLE) },
-                    ) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.settings_add_openai))
-                    }
-                }
-
-                Spacer(Modifier.height(28.dp))
-                Text(
-                    text = stringResource(R.string.settings_github_section),
-                    style = MaterialTheme.typography.titleMedium,
+                OutlinedTextField(
+                    value = state.modelName,
+                    onValueChange = viewModel::onModelNameChange,
+                    label = { Text(stringResource(R.string.settings_model_name)) },
+                    placeholder = { Text(stringResource(R.string.settings_model_hint)) },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Rounded.Bolt, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
+                TestConnectionRow(
+                    state = state.ollamaTest,
+                    onTest = viewModel::testOllamaConnection,
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // GitHub section
+            SectionCard(title = stringResource(R.string.settings_github_section)) {
                 SecretField(
                     value = state.githubPat,
                     onValueChange = viewModel::onGithubPatChange,
                     label = stringResource(R.string.settings_github_pat),
+                    leadingIcon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = viewModel::testGithubConnection) {
-                        Text(stringResource(R.string.settings_test))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    TestStatusLabel(state.githubTest)
-                }
+                Text(
+                    text = stringResource(R.string.settings_github_pat_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                TestConnectionRow(
+                    state = state.githubTest,
+                    onTest = viewModel::testGithubConnection,
+                )
+            }
 
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = viewModel::save,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                ) {
-                    Text(stringResource(R.string.settings_save))
-                }
+            Spacer(Modifier.height(16.dp))
 
-                Spacer(Modifier.height(24.dp))
-                val context = LocalContext.current
+            Button(
+                onClick = viewModel::save,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                ),
+            ) {
+                Text(stringResource(R.string.settings_save), style = MaterialTheme.typography.labelLarge)
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            if (!embeddedInTabs) {
+            Button(
+                onClick = onOpenChats,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.chats_title), style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Button(
+                onClick = onOpenGeneralChat,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.settings_general_chat), style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Rounded.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Button(
+                onClick = onBrowseRepos,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.settings_continue), style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+            }
+
+            // Resume card
+            AnimatedVisibility(
+                visible = state.activeRepo != null,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                state.activeRepo?.let { repo -> ResumeCard(repo = repo, onResume = onResumeRepo) }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // OEM battery whitelist tip — FGS helps a lot, but Xiaomi/MIUI etc.
+            // may still need a manual "No restrictions" / Autostart allow.
+            val context = LocalContext.current
+            SectionCard(title = stringResource(R.string.settings_battery_section)) {
                 Text(
                     text = stringResource(R.string.settings_battery_tip),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
                     onClick = {
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                             data = Uri.fromParts("package", context.packageName, null)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        runCatching { context.startActivity(intent) }
+                        try {
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            // No settings activity — ignore.
+                        }
                     },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
                 ) {
+                    Icon(
+                        imageVector = Icons.Rounded.BatteryChargingFull,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.settings_battery_open))
                 }
-                Spacer(Modifier.height(32.dp))
             }
-        }
-    }
-}
 
-@Composable
-private fun ProviderRow(
-    connection: ServiceConnection,
-    isActive: Boolean,
-    onEdit: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onSetActive: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+            Spacer(Modifier.height(20.dp))
+
             Text(
-                text = connection.label.ifBlank { connection.type.name },
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = buildString {
-                    append(connection.modelName.ifBlank { "—" })
-                    if (isActive) append(" · active")
-                },
+                text = stringResource(R.string.settings_security_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        IconButton(onClick = onMoveUp) {
-            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null)
-        }
-        IconButton(onClick = onMoveDown) {
-            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
-        }
-        TextButton(onClick = onSetActive) {
-            Text(if (isActive) "✓" else stringResource(R.string.settings_use))
-        }
-        TextButton(onClick = onEdit) {
-            Text(stringResource(R.string.settings_edit))
+
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun ConnectionEditor(
-    connection: ServiceConnection,
-    testState: TestState,
-    onChange: (ServiceConnection) -> Unit,
-    onTest: () -> Unit,
-    onSave: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = connection.label,
-            onValueChange = { onChange(connection.copy(label = it)) },
-            label = { Text(stringResource(R.string.settings_conn_label)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (connection.type == ConnectionType.OPENAI_COMPATIBLE) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = connection.baseUrl,
-                onValueChange = { onChange(connection.copy(baseUrl = it)) },
-                label = { Text(stringResource(R.string.settings_base_url)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+private fun SectionCard(title: String, content: @Composable () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
             )
-        }
-        Spacer(Modifier.height(10.dp))
-        SecretField(
-            value = connection.apiKey,
-            onValueChange = { onChange(connection.copy(apiKey = it)) },
-            label = stringResource(R.string.settings_api_key),
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = connection.modelName,
-            onValueChange = { onChange(connection.copy(modelName = it)) },
-            label = { Text(stringResource(R.string.settings_model_name)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onTest) {
-                Text(stringResource(R.string.settings_test))
-            }
-            Spacer(Modifier.width(12.dp))
-            TestStatusLabel(testState)
-        }
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = onSave,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-        ) {
-            Text(stringResource(R.string.settings_save))
-        }
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onDelete) {
-            Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.settings_delete_connection))
+            Spacer(Modifier.height(14.dp))
+            content()
         }
     }
 }
 
 @Composable
-private fun SecretField(value: String, onValueChange: (String) -> Unit, label: String) {
+private fun SecretField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    leadingIcon: @Composable () -> Unit,
+) {
     var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
-        visualTransformation = if (visible) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
+        leadingIcon = leadingIcon,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
                 Icon(
-                    if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                    contentDescription = null,
+                    imageVector = if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                    contentDescription = stringResource(
+                        if (visible) R.string.settings_hide else R.string.settings_show
+                    ),
                 )
             }
         },
         modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
     )
 }
 
 @Composable
-private fun TestStatusLabel(state: TestState) {
-    when (state.status) {
-        TestStatus.Idle -> Unit
-        TestStatus.Testing -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-        TestStatus.Success -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Rounded.CheckCircle,
-                null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(state.detail, style = MaterialTheme.typography.bodySmall)
+private fun TestConnectionRow(state: TestState, onTest: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            onClick = onTest,
+            enabled = state.status != TestStatus.Testing,
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (state.status == TestStatus.Testing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Text(
+                    text = when (state.status) {
+                        TestStatus.Testing -> stringResource(R.string.settings_testing)
+                        else -> stringResource(R.string.settings_test)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
         }
-        TestStatus.Failure -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Rounded.ErrorOutline,
-                null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(18.dp),
+        Spacer(Modifier.width(10.dp))
+        when (state.status) {
+            TestStatus.Success -> InfoChip(
+                text = state.detail,
+                icon = Icons.Rounded.CheckCircle,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                state.detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+            TestStatus.Failure -> InfoChip(
+                text = state.detail,
+                icon = Icons.Rounded.ErrorOutline,
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            else -> {}
+        }
+    }
+}
+
+@Composable
+private fun ResumeCard(repo: ActiveRepo, onResume: (owner: String, repo: String, defaultBranch: String) -> Unit) {
+    Surface(
+        onClick = { onResume(repo.owner, repo.repo, repo.defaultBranch) },
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Code,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_resume),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                )
+                Text(
+                    text = stringResource(R.string.settings_resume_in, repo.repoKey),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
     }
