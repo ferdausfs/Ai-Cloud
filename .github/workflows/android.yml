@@ -113,6 +113,9 @@ jobs:
         with:
           api-level: 34
           force-avd-creation: false
+          # 32-bit x86 system images are no longer published for API 34; use the
+          # 64-bit image which sdkmanager can resolve (system-images;...;x86_64).
+          arch: x86_64
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: ./gradlew :app:connectedDebugAndroidTest
 
@@ -147,6 +150,13 @@ jobs:
       - name: Run OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
         id: depcheck
+        env:
+          # The action runs inside its own Docker image which already bundles a
+          # JDK. The host JAVA_HOME points at a tool-cache path that is not
+          # mounted inside the container, so clear it and let the container
+          # resolve its own Java instead of failing with "JAVA_HOME is not
+          # defined correctly".
+          JAVA_HOME: ""
         with:
           project: 'RepoChat'
           path: '.'
