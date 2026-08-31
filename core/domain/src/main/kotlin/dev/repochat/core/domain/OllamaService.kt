@@ -12,11 +12,6 @@ interface OllamaService {
     suspend fun version(): String
 
     /**
-     * Model names from `GET /api/tags`. Empty when unsupported (e.g. some cloud setups).
-     */
-    suspend fun listModels(apiKeyOverride: String? = null): List<String> = emptyList()
-
-    /**
      * One chat completion.
      * @param jsonMode when true, request structured JSON (`format=json`).
      * @param apiKeyOverride when non-null, use this key instead of Settings cache

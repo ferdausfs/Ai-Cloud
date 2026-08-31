@@ -14,7 +14,6 @@ import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoFileTree
 import dev.repochat.core.model.RepoSession
 import dev.repochat.core.model.RepoSummary
-import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.TreeEntry
 import dev.repochat.core.model.WorkflowJobInfo
 import dev.repochat.core.model.WorkflowRunInfo
@@ -80,9 +79,7 @@ class FakeLlmService(
         )
     }
 
-    override suspend fun test(connection: ServiceConnection): String = "ok"
-
-    override suspend fun listModels(connection: ServiceConnection): List<String> = emptyList()
+    override suspend fun test(connection: dev.repochat.core.model.ServiceConnection): String = "ok"
 }
 
 class FakeGithubService : GithubService {

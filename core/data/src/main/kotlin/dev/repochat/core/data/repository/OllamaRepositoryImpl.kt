@@ -23,21 +23,6 @@ class OllamaRepositoryImpl @Inject constructor(
         mapHttpErrors(AppError.Provider.OLLAMA) { api.version() }.version
             ?: "unknown"
 
-    override suspend fun listModels(apiKeyOverride: String?): List<String> {
-        return try {
-            val dto = OllamaKeyOverride.withKeySuspend(apiKeyOverride) {
-                mapHttpErrors(AppError.Provider.OLLAMA) { api.tags() }
-            }
-            dto.models
-                .map { m -> m.name.ifBlank { m.model.orEmpty() }.trim() }
-                .filter { it.isNotEmpty() }
-                .distinct()
-                .sorted()
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     override suspend fun chat(
         model: String,
         messages: List<OllamaMessage>,
