@@ -72,4 +72,30 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
         )
         return reply.take(80)
     }
+
+    /**
+     * GET {base}/models. Returns sorted unique ids; empty on any failure so the
+     * Settings form can fall back to a manual model field.
+     */
+    suspend fun listModels(connection: ServiceConnection): List<String> {
+        val base = connection.baseUrl.trim().trimEnd('/')
+        if (base.isBlank()) return emptyList()
+        val url = "$base/models"
+        val headers = buildMap {
+            val key = connection.apiKey.trim()
+            if (key.isNotBlank()) put("Authorization", "Bearer $key")
+        }
+        return try {
+            val response = mapHttpErrors(AppError.Provider.LLM) {
+                api.listModels(url, headers)
+            }
+            response.data
+                .map { it.id.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .sorted()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 }

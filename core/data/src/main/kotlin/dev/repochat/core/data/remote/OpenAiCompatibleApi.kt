@@ -15,6 +15,13 @@ interface OpenAiCompatibleApi {
         @retrofit2.http.Body body: OpenAiChatRequestDto,
         @retrofit2.http.HeaderMap headers: Map<String, String>,
     ): OpenAiChatResponseDto
+
+    /** GET {baseUrl}/models — OpenAI-compatible model catalog. */
+    @retrofit2.http.GET
+    suspend fun listModels(
+        @retrofit2.http.Url url: String,
+        @retrofit2.http.HeaderMap headers: Map<String, String>,
+    ): OpenAiModelsDto
 }
 
 @Serializable
@@ -59,4 +66,14 @@ data class OpenAiErrorBodyDto(
 data class OpenAiErrorDto(
     val error: OpenAiErrorBodyDto? = null,
     val message: String? = null,
+)
+
+@Serializable
+data class OpenAiModelsDto(
+    val data: List<OpenAiModelDto> = emptyList(),
+)
+
+@Serializable
+data class OpenAiModelDto(
+    val id: String = "",
 )

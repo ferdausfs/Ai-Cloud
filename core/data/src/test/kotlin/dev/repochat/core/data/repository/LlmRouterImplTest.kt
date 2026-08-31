@@ -78,6 +78,10 @@ class LlmRouterImplTest {
                     body: dev.repochat.core.data.remote.OpenAiChatRequestDto,
                     headers: Map<String, String>,
                 ) = error("not used")
+                override suspend fun listModels(
+                    url: String,
+                    headers: Map<String, String>,
+                ) = error("not used")
             },
         )
         val router = LlmRouterImpl(settings, ollama, openAi)
