@@ -162,6 +162,6 @@
     <string name="settings_model_custom">Custom…</string>
     <string name="settings_model_custom_hint">Enter any model id, or switch back to the list</string>
     <string name="settings_model_from_list">Pick from list</string>
-    <string name="settings_models_load_failed">Couldn't load the model list — enter the model name manually</string>
+    <string name="settings_models_load_failed">Couldn\'t load the model list — enter the model name manually</string>
     <string name="settings_ollama_model_hint">Cloud model id, e.g. gpt-oss:120b-cloud</string>
 </resources>
