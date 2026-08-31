@@ -24,4 +24,10 @@ interface LlmService {
 
     /** Trivial ping against one connection (Settings "Test"). */
     suspend fun test(connection: ServiceConnection): String
+
+    /**
+     * Live model ids for [connection] (OpenAI GET /models or Ollama GET /api/tags).
+     * Empty list when the endpoint is unavailable — UI falls back to manual entry.
+     */
+    suspend fun listModels(connection: ServiceConnection): List<String>
 }
