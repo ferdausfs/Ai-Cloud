@@ -55,6 +55,13 @@ class OllamaRepositoryImplTest {
     }
 
     @Test
+    fun `does not duplicate content when a chunk carries both message and response`() = runBlocking {
+        val mixed = """{"message":{"role":"assistant","content":"{\"action\":\"reply\",\"message\":\"hi\"}"},"response":"{\"action\":\"reply\",\"message\":\"hi\"}","done":true}"""
+        val result = repo(mixed).chat("m", listOf(OllamaMessage(OllamaRole.USER, "hi")))
+        assertEquals("""{"action":"reply","message":"hi"}""", result)
+    }
+
+    @Test
     fun `chunk error field surfaces as AppError`() = runBlocking {
         val ndjson = """
             {"error":"model 'x' not found"}

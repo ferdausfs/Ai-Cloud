@@ -2,15 +2,23 @@ package dev.repochat.core.model
 
 /**
  * The single structured JSON contract the LLM is asked to follow.
- * Every model response is parsed into one of these actions; anything that
- * does not parse falls back to a plain-text [AiAction.Reply].
+ * Every model response is parsed into one of these actions. The turn loop
+ * uses [AiActionParser.tryParse], which returns null on malformed/duplicated
+ * JSON so the model can be retried; [AiActionParser.parse] is the lenient
+ * fallback for general chat.
  */
 sealed interface AiAction {
     data class Reply(val text: String) : AiAction
     data class ReadFile(val path: String) : AiAction
     data class WriteFile(val path: String, val content: String, val commitMessage: String) : AiAction
     data class CreatePullRequest(val title: String, val body: String) : AiAction
-    data class CheckCiStatus(val branchOverride: String? = null) : AiAction
+
+    /**
+     * CI status is always scoped to the session's working branch. The model
+     * never supplies the branch: if it emits a `branch` field it is ignored by
+     * [AiActionParser] (the orchestrator is the source of truth).
+     */
+    object CheckCiStatus : AiAction
 }
 
 enum class OllamaRole(val wireName: String) {
@@ -52,6 +60,49 @@ object AiActionParser {
 
     private val fencedJson = Regex("```(?:json)?\\s*([\\s\\S]*?)```")
 
+    /**
+     * Strict parse for the action loop. Returns null when the response is not
+     * a valid single action object (including unknown action names, empty
+     * replies, or duplicated JSON). Callers should retry the model once before
+     * surfacing a clean error — never raw model JSON.
+     */
+    fun tryParse(raw: String): AiAction? {
+        val dto = decode(raw) ?: return null
+        val commit = dto.commitMessage.trim().take(200)
+        return when (dto.action.trim().lowercase()) {
+            "read_file" -> sanitizePath(dto.path)?.let { AiAction.ReadFile(it) }
+            "write_file" -> {
+                val path = sanitizePath(dto.path)
+                if (path == null || dto.content.isBlank()) null
+                else AiAction.WriteFile(
+                    path = path,
+                    content = dto.content,
+                    commitMessage = commit.ifEmpty { "chore: update ${path.substringAfterLast('/')}" },
+                )
+            }
+            "create_pull_request" -> {
+                val title = dto.title.trim().ifEmpty { dto.message.trim() }
+                    .ifEmpty { "AI changes" }
+                    .take(200)
+                val body = dto.body.trim().ifEmpty { dto.content.trim() }
+                    .ifEmpty { "Changes proposed by RepoChat." }
+                    .take(4_000)
+                AiAction.CreatePullRequest(title = title, body = body)
+            }
+            "check_ci_status" -> AiAction.CheckCiStatus
+            "reply" -> {
+                val message = dto.message.trim().ifEmpty { dto.content.trim() }
+                if (message.isNotEmpty()) AiAction.Reply(message) else null
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * Lenient parse kept for general-chat unwrapping and tests. Anything that
+     * is not a recognised tool action degrades to a plain-text reply. The
+     * turn loop uses [tryParse] so malformed/duplicated JSON is retried.
+     */
     fun parse(raw: String): AiAction {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) {
@@ -93,16 +144,26 @@ object AiActionParser {
                     .take(4_000)
                 AiAction.CreatePullRequest(title = title, body = body)
             }
-            "check_ci_status" -> {
-                val branch = dto.branch.trim().ifEmpty { dto.path.trim() }
-                    .takeIf { it.isNotBlank() }
-                AiAction.CheckCiStatus(branchOverride = branch)
-            }
+            "check_ci_status" -> AiAction.CheckCiStatus
             else -> {
                 val message = dto.message.trim()
                 if (message.isNotEmpty()) AiAction.Reply(message)
                 else AiAction.Reply(fallbackText(raw))
             }
+        }
+    }
+
+    private fun decode(raw: String): ActionDto? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val cleaned = fencedJson.find(trimmed)
+            ?.groupValues?.getOrNull(1)?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: trimmed
+        return try {
+            json.decodeFromString(ActionDto.serializer(), cleaned)
+        } catch (_: Exception) {
+            null
         }
     }
 

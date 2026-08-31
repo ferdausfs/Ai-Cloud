@@ -79,7 +79,11 @@ class AutoFixLoop @Inject constructor(
                 extraBufferCapacity = 4,
             )
             approval.tryEmit(true) // auto-approve every write in this loop
-            val attemptRequest = request.copy(userText = prompt, autoFixUntilCiGreen = false)
+            val attemptRequest = request.copy(
+                userText = prompt,
+                autoFixUntilCiGreen = false,
+                autofixAttempt = true,
+            )
             var committedSummary: String? = null
             var workingBranch: String? = request.workingBranch
             var turnError: AppError? = null
@@ -151,20 +155,25 @@ class AutoFixLoop @Inject constructor(
             }
 
             if (committedSummary == null) {
-                history += "Attempt $attempt: model replied without a commit"
-                val summary = buildString {
-                    append("I finished attempt $attempt/$maxAttempts without committing a change. ")
-                    append("Auto-fix needs a `write_file` commit so CI can run on the working branch. ")
-                    append("Want me to keep trying with a more specific instruction, or will you look at it?")
+                history += "Attempt $attempt: model did not commit a write_file change"
+                lastLog = "Model did not make a code change before CI could run."
+                if (attempt >= maxAttempts) {
+                    postStatus(request, "Attempt $attempt/$maxAttempts — model didn't make a change. Stopping.")
+                    finishGaveUp(request, attempt, history, lastLog)
+                    return@channelFlow
                 }
-                postStatus(request, summary)
-                send(
-                    TurnEvent.AutoFixProgress(
-                        AutoFixEvent.GaveUp(attempt, history, lastLog),
-                    ),
+                postStatus(
+                    request,
+                    "Attempt $attempt/$maxAttempts — model didn't make a change, retrying with clearer instructions",
                 )
-                send(TurnEvent.Reply(summary))
-                return@channelFlow
+                prompt = buildFixPrompt(
+                    originalTask = request.userText,
+                    history = history,
+                    logExcerpt = "The model responded before committing a write_file change. " +
+                        "This attempt you MUST make a concrete write_file change addressing the task " +
+                        "before anything else — do not call check_ci_status first.",
+                )
+                continue
             }
 
             history += "Attempt $attempt: committed $committedSummary"
@@ -437,8 +446,11 @@ class AutoFixLoop @Inject constructor(
             }
             append("The previous attempt failed CI with this error:\n")
             append(logExcerpt)
-            append("\n\nFix it. Use read_file / write_file as needed. ")
-            append("Commit a real fix on the working branch — do not claim success without changing code.")
+            append("\n\nYou are in an auto-fix loop. This attempt, you MUST make a concrete `write_file` change ")
+            append("addressing the task before anything else. Do not call `check_ci_status` as your first action, ")
+            append("and do not reply with prose before committing a change. ")
+            append("Fix it. Use read_file / write_file as needed — commit a real fix on the working branch, ")
+            append("do not claim success without changing code.")
         }
 
         fun buildGaveUpMessage(

@@ -253,6 +253,94 @@ class AiEditOrchestratorTest {
     }
 
     @Test
+    fun `malformed json is retried once then clean reply instead of raw text`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    "I'm going to explain what I'd do here.",
+                    """{"action":"reply","message":"clean reply"}""",
+                ),
+            ),
+        )
+        val orchestrator = AiEditOrchestrator(ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository())
+
+        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertEquals(2, ollama.callCount)
+        assertTrue(events.any { it == TurnEvent.Reply("clean reply") })
+        assertTrue(ollama.lastMessages.any { it.content.contains("not valid JSON matching the required schema") })
+        assertTrue(events.none { it is TurnEvent.Reply && it.text.contains("I'm going to explain") })
+    }
+
+    @Test
+    fun `malformed json fails cleanly after one retry`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"check_ci_status","branch":"main"}{"action":"check_ci_status","branch":"main"}""",
+                    "still not json",
+                ),
+            ),
+        )
+        val orchestrator = AiEditOrchestrator(ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository())
+
+        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertEquals(2, ollama.callCount)
+        assertTrue(events.any { it == TurnEvent.Reply("The model didn't return a usable response this attempt.") })
+        assertTrue(events.none { it is TurnEvent.Reply && it.text.contains("branch") })
+    }
+
+    @Test
+    fun `check_ci_status ignores a model supplied branch`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"check_ci_status","branch":"main"}""",
+                    """{"action":"reply","message":"Build is green."}""",
+                ),
+            ),
+        )
+        val github = FakeGithubService().apply {
+            workflowRuns = listOf(
+                dev.repochat.core.model.WorkflowRunInfo(
+                    id = 9,
+                    name = "Android CI",
+                    status = "completed",
+                    conclusion = "success",
+                    htmlUrl = "https://github.com/acme/demo/actions/runs/9",
+                ),
+            )
+        }
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+
+        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertEquals("ai-chat/testsess1", github.lastCiBranch)
+        assertTrue(events.any { it is TurnEvent.CiStatus && it.run?.conclusion == "success" })
+    }
+
+    @Test
+    fun `autofix mode rejects check_ci_status as the first action`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"check_ci_status","branch":"main"}""",
+                ),
+            ),
+        )
+        val github = FakeGithubService()
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+
+        val events = orchestrator.runTurn(request().copy(autofixAttempt = true), MutableSharedFlow()).toList()
+
+        assertEquals(1, ollama.callCount)
+        assertNull(github.lastCiBranch)
+        assertTrue(events.none { it is TurnEvent.CiStatus })
+        assertTrue(events.any { it is TurnEvent.Reply && it.text.contains("did not make a change") })
+    }
+
+    @Test
     fun `check_ci_status summarizes latest run`() = runTest {
         val ollama = FakeLlmService(
             ArrayDeque(

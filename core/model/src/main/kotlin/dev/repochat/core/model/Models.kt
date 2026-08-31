@@ -295,6 +295,12 @@ data class TurnRequest(
     val autoFixMaxAttempts: Int = 5,
     /** Force a specific LLM connection for this turn (manual chip/picker). */
     val preferredConnectionId: String? = null,
+    /**
+     * True when [dev.repochat.core.domain.AutoFixLoop] is running the turn as
+     * one attempt. Changes the system prompt to a loop-specific one and makes
+     * the orchestrator refuse to run CI before an actual write_file commit.
+     */
+    val autofixAttempt: Boolean = false,
 ) {
     val isGeneral: Boolean get() = mode == ChatMode.GENERAL
 }

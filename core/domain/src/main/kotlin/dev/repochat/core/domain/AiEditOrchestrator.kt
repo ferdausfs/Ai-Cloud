@@ -105,7 +105,12 @@ class AiEditOrchestrator @Inject constructor(
             ?.let { listOf(it) }
 
         var messages = buildList {
-            add(OllamaMessage(OllamaRole.SYSTEM, PromptBuilder.system()))
+            add(
+                OllamaMessage(
+                    role = OllamaRole.SYSTEM,
+                    content = if (request.autofixAttempt) PromptBuilder.autofixSystem() else PromptBuilder.system(),
+                )
+            )
             addAll(history)
             add(
                 OllamaMessage(
@@ -123,7 +128,11 @@ class AiEditOrchestrator @Inject constructor(
             )
         }
 
-        repeat(MAX_MODEL_STEPS) {
+        var step = 0
+        var wroteThisTurn = false
+        var firstActionSeen: AiAction? = null
+        while (step < MAX_MODEL_STEPS) {
+            step++
             emit(TurnEvent.Working("Thinking"))
             val result = llm.chat(
                 messages = messages,
@@ -135,10 +144,72 @@ class AiEditOrchestrator @Inject constructor(
                 chat.appendAiText(request.repoKey, request.sessionId, "↔ $note")
                 emit(TurnEvent.ProviderNote(note))
             }
-            val raw = result.text
+            var raw = result.text
             messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.ASSISTANT, raw))
 
-            when (val action = AiActionParser.parse(raw)) {
+            var action = AiActionParser.tryParse(raw)
+            if (action == null) {
+                // Malformed/duplicated JSON: do NOT surface the raw text to the
+                // user. Re-send once with an explicit correction, then retry.
+                messages = PromptBuilder.cap(
+                    messages + OllamaMessage(
+                        OllamaRole.USER,
+                        "Your last response was not valid JSON matching the required schema. " +
+                            "Respond with exactly one JSON object, no duplicates, no surrounding text.",
+                    ),
+                )
+                emit(TurnEvent.Working("Retrying after invalid response"))
+                val retry = llm.chat(
+                    messages = messages,
+                    jsonMode = true,
+                    preferredConnectionId = request.preferredConnectionId,
+                )
+                retry.fellBackFrom?.let { from ->
+                    val note = "$from hit a rate limit — switched to ${retry.providerLabel} for this response"
+                    chat.appendAiText(request.repoKey, request.sessionId, "↔ $note")
+                    emit(TurnEvent.ProviderNote(note))
+                }
+                raw = retry.text
+                messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.ASSISTANT, raw))
+                action = AiActionParser.tryParse(raw)
+                if (action == null) {
+                    val failed = "The model didn't return a usable response this attempt."
+                    chat.appendAiText(request.repoKey, request.sessionId, failed)
+                    emit(TurnEvent.Reply(failed))
+                    return@flow
+                }
+            }
+
+            if (request.autofixAttempt) {
+                val isFirst = firstActionSeen == null
+                if (isFirst) firstActionSeen = action
+
+                // Bug 3: an auto-fix attempt must end in a write_file. If the
+                // model's first meaningful action is CI-check or a plain reply,
+                // treat the attempt as wasted instead of checking CI (or
+                // replying) with no code change.
+                if (isFirst && (action is AiAction.Reply || action is AiAction.CheckCiStatus)) {
+                    val wasted = "Auto-fix attempt did not make a change — the model responded " +
+                        "before attempting a write_file. Retrying with clearer instructions."
+                    chat.appendAiText(request.repoKey, request.sessionId, wasted)
+                    emit(TurnEvent.Reply(wasted))
+                    return@flow
+                }
+
+                // Never run CI before an actual change is committed in this turn.
+                if (action is AiAction.CheckCiStatus && !wroteThisTurn) {
+                    messages = PromptBuilder.cap(
+                        messages + OllamaMessage(
+                            OllamaRole.USER,
+                            "You are in an auto-fix loop. Do NOT check CI yet — it only runs after a " +
+                                "write_file change is committed. Make a concrete write_file change first.",
+                        ),
+                    )
+                    continue
+                }
+            }
+
+            when (action) {
                 is AiAction.Reply -> {
                     chat.appendAiText(request.repoKey, request.sessionId, action.text)
                     emit(TurnEvent.Reply(action.text))
@@ -192,6 +263,7 @@ class AiEditOrchestrator @Inject constructor(
                             commitMessage = change.commitMessage,
                         )
                         chat.markWrite(rowId, MessageStatus.APPROVED, result.newSha)
+                        wroteThisTurn = true
                         emit(TurnEvent.WriteCommitted(rowId, change))
                     } else {
                         chat.markWrite(rowId, MessageStatus.REJECTED, null)
@@ -231,10 +303,10 @@ class AiEditOrchestrator @Inject constructor(
                     }
                 }
 
+                // Bug 2: CI is always scoped to the session's working branch.
+                // The model-provided branch field is ignored entirely.
                 is AiAction.CheckCiStatus -> {
-                    val targetBranch = action.branchOverride
-                        ?.takeIf { it.isNotBlank() }
-                        ?: branch
+                    val targetBranch = branch
                     emit(TurnEvent.Working("Checking CI on $targetBranch"))
                     val runs = github.listWorkflowRuns(
                         owner = request.owner,

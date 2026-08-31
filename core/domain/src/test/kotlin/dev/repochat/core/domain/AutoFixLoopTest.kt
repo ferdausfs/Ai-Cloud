@@ -107,6 +107,41 @@ class AutoFixLoopTest {
     }
 
     @Test
+    fun loop_retriesWhenModelDoesNotCommitThenChecksCiOnlyAfterWrite() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"check_ci_status","branch":"main"}""",
+                    writeAction("src/Main.kt", "fun main() = Unit", "fix: real fix"),
+                ),
+            ),
+        )
+        val github = FakeGithubService().apply {
+            files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
+            workflowRunSequence += listOf(
+                WorkflowRunInfo(30, "Android CI", "completed", "success", "https://ci/30"),
+            )
+        }
+        val chat = FakeChatRepository()
+        chat.ensureSession("acme", "demo", "main")
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val loop = testLoop(orchestrator, github, chat)
+
+        val events = loop.run(request(), maxAttempts = 3).toList()
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+
+        assertEquals(2, ollama.callCount)
+        assertTrue("expected Committed after the write: $progress", progress.any { it is AutoFixEvent.Committed })
+        assertTrue("expected CiPassed: $progress", progress.any { it is AutoFixEvent.CiPassed })
+        assertEquals("ai-chat/testsess1", github.committed?.second)
+        assertEquals("ai-chat/testsess1", github.lastCiBranch)
+        assertTrue(
+            "should report the wasted attempt distinctly: $events",
+            events.any { it is TurnEvent.Reply && it.text.contains("did not make a change", ignoreCase = true) },
+        )
+    }
+
+    @Test
     fun loop_fetchesRealLog_onFailure_thenPasses() = runTest {
         val ollama = FakeLlmService(
             ArrayDeque(

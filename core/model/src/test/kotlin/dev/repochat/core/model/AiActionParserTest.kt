@@ -76,12 +76,31 @@ class AiActionParserTest {
     }
 
     @Test
-    fun `parses check_ci_status with optional branch`() {
+    fun `parses check_ci_status and ignores a branch the model supplied`() {
         val withBranch = AiActionParser.parse(
-            """{"action":"check_ci_status","branch":"ai-chat/abc"}""",
+            """{"action":"check_ci_status","branch":"main"}""",
         )
-        assertEquals(AiAction.CheckCiStatus("ai-chat/abc"), withBranch)
+        assertEquals(AiAction.CheckCiStatus, withBranch)
         val without = AiActionParser.parse("""{"action":"check_ci_status"}""")
-        assertEquals(AiAction.CheckCiStatus(null), without)
+        assertEquals(AiAction.CheckCiStatus, without)
+    }
+
+    @Test
+    fun `tryParse rejects non-json so the loop can retry instead of showing raw text`() {
+        assertNull(AiActionParser.tryParse("I'm sorry, I can't do that."))
+    }
+
+    @Test
+    fun `tryParse rejects duplicated json objects`() {
+        assertNull(
+            AiActionParser.tryParse(
+                """{"action":"check_ci_status","branch":"main"}{"action":"check_ci_status","branch":"main"}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `tryParse rejects unknown action names`() {
+        assertNull(AiActionParser.tryParse("""{"action":"dance","message":"twirl"}"""))
     }
 }

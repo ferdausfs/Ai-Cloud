@@ -27,7 +27,6 @@ object PromptBuilder {
           "commit_message": "string - for write_file: a short Conventional Commit message, e.g. 'fix: handle empty input'",
           "title": "string - for create_pull_request: short PR title",
           "body": "string - for create_pull_request: PR description (markdown ok)",
-          "branch": "string - optional for check_ci_status: branch to inspect; defaults to the working branch",
           "message": "string - for reply: plain text shown to the user"
         }
 
@@ -36,13 +35,32 @@ object PromptBuilder {
         - write_file must contain the full new content of the file. If you only have a patch in mind, read the file first.
         - You may write_file a path that does not exist to create a new file; the app shows the user a diff before committing.
         - create_pull_request: ONLY when the user has asked to open/submit a PR (or explicitly confirmed after you asked). Do not open a PR proactively every turn. Prefer after at least one successful write this session. The app opens the PR from the working branch into the default branch — you never push to main.
-        - check_ci_status: when the user asks about build/CI status, or once after creating a PR to report whether checks are running/passing. One check per user turn is enough — do not poll in a tight loop.
+        - check_ci_status: NEVER pass a branch — the app always checks the session's working branch itself. Use it only after you have committed a real change (or after a PR was created).
         - After create_pull_request or check_ci_status the app feeds you the result; then reply to the user with the PR URL or a plain-language CI summary.
         - Keep replies concise and friendly. Prefer plain text over markdown on mobile.
         - Never invent repository contents; base every action on the file tree and file contents provided to you.
         - Do not mention raw git commands unless the user asks; the app handles git operations safely for you.
         - Respond with JSON only: no markdown fences, no prose outside the JSON object.
     """.trimIndent()
+
+    /**
+     * Stricter system prompt used by [dev.repochat.core.domain.AutoFixLoop]
+     * attempts. Makes the edit-before-CI ordering explicit so the model does
+     * not burn an attempt by checking CI (or replying) instead of editing.
+     */
+    fun autofixSystem(): String = buildString {
+        append(system())
+        append(
+            """
+
+            AUTO-FIX LOOP MODE:
+            - You are an autonomous fix loop. This attempt, you MUST make a concrete write_file change that addresses the task before anything else.
+            - Do NOT call check_ci_status as your first action. The app only runs CI after a change is committed to the working branch.
+            - Do NOT reply with prose until after you have committed the fix (or there is nothing left to change).
+            - You may call read_file first to understand the code, but write_file is the goal of every attempt.
+            """.trimIndent(),
+        )
+    }
 
     fun userTurn(
         task: String,
