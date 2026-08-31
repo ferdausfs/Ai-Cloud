@@ -1,3 +1,7 @@
+# Android CI + Auto-merge for RepoChat (Ai-Cloud)
+# Triggers on pushes to ai-chat/** branches and on pull requests.
+# When the working branch (ai-chat/*) passes build + tests, it is auto-merged into main.
+
 name: Android CI
 
 on:
@@ -8,6 +12,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  checks: write
 
 jobs:
   build:
@@ -15,24 +21,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
-      - name: Run unit tests
+
+      - name: Run unit tests (all modules)
         run: ./gradlew :core:model:test :core:domain:test :core:data:testDebugUnitTest :app:testDebugUnitTest --stacktrace
-      - name: Upload debug APK
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 7
 
   # Auto-merge: once the working branch is GREEN (build + tests pass),
   # merge it into main automatically — no manual push is needed.
@@ -42,10 +60,12 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/ai-chat/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main
+        uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+
       - name: Merge working branch into main
         run: |
           git config user.name "github-actions[bot]"
@@ -53,3 +73,5 @@ jobs:
           git fetch origin "${{ github.ref_name }}"
           git merge --no-ff "origin/${{ github.ref_name }}" -m "Auto-merge ${{ github.ref_name }} after green CI"
           git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
