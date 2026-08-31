@@ -13,7 +13,7 @@ interface OpenAiCompatibleApi {
     suspend fun chatCompletions(
         @retrofit2.http.Url url: String,
         @retrofit2.http.Body body: OpenAiChatRequestDto,
-        @retrofit2.http.Header("Authorization") authorization: String,
+        @retrofit2.http.HeaderMap headers: Map<String, String>,
     ): OpenAiChatResponseDto
 }
 

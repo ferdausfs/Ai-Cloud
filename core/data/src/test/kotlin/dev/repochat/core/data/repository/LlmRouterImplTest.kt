@@ -76,7 +76,7 @@ class LlmRouterImplTest {
                 override suspend fun chatCompletions(
                     url: String,
                     body: dev.repochat.core.data.remote.OpenAiChatRequestDto,
-                    authorization: String,
+                    headers: Map<String, String>,
                 ) = error("not used")
             },
         )

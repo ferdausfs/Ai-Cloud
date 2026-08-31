@@ -34,8 +34,9 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
             throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no model name.")
         }
         val url = "$base/chat/completions"
-        val auth = connection.apiKey.trim().let { key ->
-            if (key.isBlank()) "" else "Bearer $key"
+        val headers = buildMap {
+            val key = connection.apiKey.trim()
+            if (key.isNotBlank()) put("Authorization", "Bearer $key")
         }
         val body = OpenAiChatRequestDto(
             model = model,
@@ -46,7 +47,7 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
             stream = false,
         )
         val response = mapHttpErrors(AppError.Provider.LLM) {
-            api.chatCompletions(url, body, auth)
+            api.chatCompletions(url, body, headers)
         }
         response.error?.message?.takeIf { it.isNotBlank() }?.let {
             throw AppError.Api(AppError.Provider.LLM, null, it)
