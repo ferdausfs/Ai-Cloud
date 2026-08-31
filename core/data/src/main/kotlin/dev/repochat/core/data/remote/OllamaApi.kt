@@ -8,6 +8,9 @@ interface OllamaApi {
     @retrofit2.http.GET("api/version")
     suspend fun version(): OllamaVersionDto
 
+    @retrofit2.http.GET("api/tags")
+    suspend fun tags(): OllamaTagsDto
+
     /**
      * POST /api/chat — returns the raw body.
      *
@@ -22,6 +25,17 @@ interface OllamaApi {
 
 @Serializable
 data class OllamaVersionDto(val version: String? = null)
+
+@Serializable
+data class OllamaTagsDto(
+    val models: List<OllamaTagModelDto> = emptyList(),
+)
+
+@Serializable
+data class OllamaTagModelDto(
+    val name: String = "",
+    val model: String? = null,
+)
 
 @Serializable
 data class OllamaChatRequestDto(

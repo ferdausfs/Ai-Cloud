@@ -17,6 +17,8 @@ import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.matchOpenAiPreset
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +32,14 @@ data class TestState(
     val detail: String = "",
 )
 
+enum class ModelListStatus { Idle, Loading, Ready, Failed }
+
+data class ModelListState(
+    val status: ModelListStatus = ModelListStatus.Idle,
+    val models: List<String> = emptyList(),
+    val detail: String = "",
+)
+
 data class SettingsUiState(
     val githubPat: String = "",
     val connections: List<ServiceConnection> = emptyList(),
@@ -39,6 +49,7 @@ data class SettingsUiState(
     val connectionTests: Map<String, TestState> = emptyMap(),
     /** Per-connection: user chose free-text model entry. */
     val customModelIds: Set<String> = emptySet(),
+    val modelLists: Map<String, ModelListState> = emptyMap(),
     val activeRepo: ActiveRepo? = null,
     val savedFlash: Boolean = false,
     val editingConnectionId: String? = null,
@@ -55,6 +66,8 @@ class SettingsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    private var loadModelsJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -140,6 +153,7 @@ class SettingsViewModel @Inject constructor(
                 customModelIds = if (useCustom) state.customModelIds + id else state.customModelIds - id,
             )
         }
+        loadModels(id)
     }
 
     fun cancelEdit() = _uiState.update { it.copy(editingConnectionId = null) }
@@ -177,6 +191,66 @@ class SettingsViewModel @Inject constructor(
                 state.copy(customModelIds = state.customModelIds + connectionId)
             } else {
                 state.copy(customModelIds = state.customModelIds - connectionId)
+            }
+        }
+    }
+
+    fun onApiKeyChanged(connectionId: String, apiKey: String) {
+        val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return
+        updateConnection(conn.copy(apiKey = apiKey))
+        if (apiKey.trim().length >= 8) {
+            loadModels(connectionId, debounceMs = 600)
+        }
+    }
+
+    fun loadModels(connectionId: String, debounceMs: Long = 0) {
+        loadModelsJob?.cancel()
+        loadModelsJob = viewModelScope.launch {
+            if (debounceMs > 0) delay(debounceMs)
+            val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return@launch
+            val curated = when (conn.type) {
+                ConnectionType.OLLAMA -> KNOWN_OLLAMA_CLOUD_MODELS
+                ConnectionType.OPENAI_COMPATIBLE ->
+                    suggestedModelsFor(matchOpenAiPreset(conn.baseUrl).label)
+                else -> emptyList()
+            }
+            _uiState.update {
+                val prev = it.modelLists[connectionId] ?: ModelListState()
+                it.copy(
+                    modelLists = it.modelLists + (
+                        connectionId to prev.copy(status = ModelListStatus.Loading)
+                        ),
+                )
+            }
+            val live = try {
+                llm.listModels(conn)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val models = when {
+                live.isNotEmpty() -> live
+                curated.isNotEmpty() -> curated
+                else -> emptyList()
+            }
+            val failed = live.isEmpty() && curated.isEmpty() &&
+                conn.type == ConnectionType.OPENAI_COMPATIBLE
+            _uiState.update {
+                it.copy(
+                    modelLists = it.modelLists + (
+                        connectionId to ModelListState(
+                            status = if (failed) ModelListStatus.Failed else ModelListStatus.Ready,
+                            models = models,
+                            detail = if (failed) {
+                                "Could not load models — enter the model name manually"
+                            } else {
+                                ""
+                            },
+                        )
+                        ),
+                )
+            }
+            if (models.isNotEmpty() && conn.modelName.isBlank()) {
+                updateConnection(conn.copy(modelName = models.first()))
             }
         }
     }
