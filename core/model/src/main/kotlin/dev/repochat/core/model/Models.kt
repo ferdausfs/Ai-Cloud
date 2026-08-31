@@ -5,11 +5,21 @@ package dev.repochat.core.model
  * (NDJSON). [OPENAI_COMPATIBLE] uses standard /v1/chat/completions.
  */
 @kotlinx.serialization.Serializable
-enum class ConnectionType { OLLAMA, OPENAI_COMPATIBLE, GITHUB }
+enum class ConnectionType { OLLAMA, OPENAI_COMPATIBLE, GITHUB, CLOUDFLARE, VERCEL, FIREBASE }
 
 /**
  * One configured service endpoint (LLM provider or, later, other APIs).
  * Multiple OPENAI_COMPATIBLE rows let the user keep Groq + Cerebras + etc.
+ *
+ * Extra fields are type-specific:
+ *   [ConnectionType.CLOUDFLARE] → [extraId] (Account ID), [apiKey] (API Token).
+ *   [ConnectionType.VERCEL]     → [apiKey] (API Token); [baseUrl] is the Vercel API root.
+ *   [ConnectionType.FIREBASE]   → [extraId] (Project ID), [apiKey] (Web API key or empty
+ *                                 when a service account file is used), [serviceAccountJson]
+ *                                 (file-picked service account JSON, stored separately).
+ *
+ * [modelName] is repurposed for per-type extras (e.g. Ollama model id); for
+ * non-LLM connections it is usually blank.
  */
 @kotlinx.serialization.Serializable
 data class ServiceConnection(
@@ -17,12 +27,22 @@ data class ServiceConnection(
     val type: ConnectionType,
     /** User nickname, e.g. "Groq free tier". */
     val label: String,
-    /** Base URL without trailing slash, e.g. https://api.groq.com/openai/v1 */
+    /** Base URL without trailing slash, e.g. https://api.groq.com/openai/v1
+     * For Cloudflare/Vercel/Firebase this is the API root (or blank for Firebase). */
     val baseUrl: String = "",
     val apiKey: String = "",
-    /** Default model for this connection. */
+    /** Default model for this connection (Ollama / OpenAI-compatible). For
+     * Firebase this holds the Web API key when no service account is used. */
     val modelName: String = "",
-)
+    /** Cloudflare Account ID; Firebase Project ID; otherwise blank. */
+    val extraId: String = "",
+    /** Firebase service account JSON (file-picked); base64-encoded for storage.
+     * Blank for all other connection types. */
+    val serviceAccountJson: String = "",
+) {
+    val isFirebaseWithServiceAccount: Boolean
+        get() = type == ConnectionType.FIREBASE && serviceAccountJson.isNotBlank()
+}
 
 /** Result of a single LLM completion, including which connection answered. */
 data class LlmChatResult(
@@ -231,6 +251,53 @@ data class WorkflowStepInfo(
 )
 
 data class ConnectionResult(val ok: Boolean, val detail: String)
+
+/* ---- Multi-service connection info models (Cloudflare/Vercel/Firebase) ---- */
+
+data class CloudflareAccountInfo(
+    val id: String,
+    val email: String?,
+    val name: String?,
+)
+
+data class CloudflareZoneInfo(
+    val id: String,
+    val name: String,
+    val status: String,
+    val planName: String?,
+)
+
+data class CloudflareWorkerScriptInfo(
+    val id: String,
+    val name: String,
+    val etag: String?,
+)
+
+data class VercelProjectInfo(
+    val id: String,
+    val name: String,
+    val framework: String?,
+)
+
+data class VercelDeploymentInfo(
+    val id: String,
+    val url: String,
+    val status: String,
+    val state: String,
+    val projectId: String?,
+    val projectName: String?,
+)
+
+data class FirebaseProjectInfo(
+    val name: String,
+    val projectId: String,
+    val projectNumber: String?,
+)
+
+data class FirebaseServiceInfo(
+    val name: String,
+    val state: String,
+)
 
 /**
  * A file the user attached to a chat turn before sending. Text attachments
