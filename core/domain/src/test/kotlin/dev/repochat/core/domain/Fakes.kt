@@ -38,8 +38,6 @@ class FakeOllamaService(
         return versionOverride
     }
 
-    override suspend fun listModels(apiKeyOverride: String?): List<String> = emptyList()
-
     override suspend fun chat(
         model: String,
         messages: List<OllamaMessage>,
@@ -82,9 +80,6 @@ class FakeLlmService(
     }
 
     override suspend fun test(connection: dev.repochat.core.model.ServiceConnection): String = "ok"
-
-    override suspend fun listModels(connection: dev.repochat.core.model.ServiceConnection): List<String> =
-        emptyList()
 }
 
 class FakeGithubService : GithubService {

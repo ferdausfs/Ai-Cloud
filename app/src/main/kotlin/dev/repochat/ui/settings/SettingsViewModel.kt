@@ -11,7 +11,10 @@ import dev.repochat.core.domain.TestGithubUseCase
 import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ConnectionType
+import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
+import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
 import dev.repochat.core.model.ServiceConnection
+import dev.repochat.core.model.matchOpenAiPreset
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,9 +37,10 @@ data class SettingsUiState(
     val activeProviderId: String? = null,
     val githubTest: TestState = TestState(),
     val connectionTests: Map<String, TestState> = emptyMap(),
+    /** Per-connection: user chose free-text model entry. */
+    val customModelIds: Set<String> = emptySet(),
     val activeRepo: ActiveRepo? = null,
     val savedFlash: Boolean = false,
-    /** null = list mode; non-null = editing that id (or "new"). */
     val editingConnectionId: String? = null,
 )
 
@@ -94,16 +98,19 @@ class SettingsViewModel @Inject constructor(
                 label = "Ollama",
                 baseUrl = "https://ollama.com",
                 apiKey = "",
-                modelName = "gpt-oss:120b-cloud",
+                modelName = KNOWN_OLLAMA_CLOUD_MODELS.first(),
             )
-            ConnectionType.OPENAI_COMPATIBLE -> ServiceConnection(
-                id = id,
-                type = type,
-                label = "OpenAI-compatible",
-                baseUrl = "https://api.groq.com/openai/v1",
-                apiKey = "",
-                modelName = "llama-3.3-70b-versatile",
-            )
+            ConnectionType.OPENAI_COMPATIBLE -> {
+                val preset = KNOWN_OPENAI_PROVIDERS.first()
+                ServiceConnection(
+                    id = id,
+                    type = type,
+                    label = preset.label,
+                    baseUrl = preset.baseUrl,
+                    apiKey = "",
+                    modelName = suggestedModelsFor(preset.label).firstOrNull().orEmpty(),
+                )
+            }
             ConnectionType.GITHUB -> return
         }
         _uiState.update {
@@ -111,12 +118,29 @@ class SettingsViewModel @Inject constructor(
                 connections = it.connections + draft,
                 providerOrder = it.providerOrder + id,
                 editingConnectionId = id,
+                customModelIds = it.customModelIds - id,
             )
         }
     }
 
-    fun startEditConnection(id: String) =
-        _uiState.update { it.copy(editingConnectionId = id) }
+    fun startEditConnection(id: String) {
+        val conn = _uiState.value.connections.firstOrNull { it.id == id }
+        val useCustom = when {
+            conn == null -> false
+            conn.type == ConnectionType.OLLAMA ->
+                conn.modelName.isNotBlank() && conn.modelName !in KNOWN_OLLAMA_CLOUD_MODELS
+            else -> {
+                val models = suggestedModelsFor(matchOpenAiPreset(conn.baseUrl).label)
+                conn.modelName.isNotBlank() && models.isNotEmpty() && conn.modelName !in models
+            }
+        }
+        _uiState.update { state ->
+            state.copy(
+                editingConnectionId = id,
+                customModelIds = if (useCustom) state.customModelIds + id else state.customModelIds - id,
+            )
+        }
+    }
 
     fun cancelEdit() = _uiState.update { it.copy(editingConnectionId = null) }
 
@@ -130,6 +154,33 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun selectOpenAiPreset(connectionId: String, presetLabel: String) {
+        val preset = KNOWN_OPENAI_PROVIDERS.firstOrNull { it.label == presetLabel } ?: return
+        val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return
+        val models = suggestedModelsFor(preset.label)
+        val next = conn.copy(
+            label = if (preset.baseUrl.isNotEmpty()) preset.label else conn.label,
+            baseUrl = preset.baseUrl,
+            modelName = when {
+                preset.baseUrl == conn.baseUrl -> conn.modelName
+                models.isNotEmpty() -> models.first()
+                else -> ""
+            },
+        )
+        updateConnection(next)
+        _uiState.update { it.copy(customModelIds = it.customModelIds - connectionId) }
+    }
+
+    fun setUseCustomModel(connectionId: String, custom: Boolean) {
+        _uiState.update { state ->
+            if (custom) {
+                state.copy(customModelIds = state.customModelIds + connectionId)
+            } else {
+                state.copy(customModelIds = state.customModelIds - connectionId)
+            }
+        }
+    }
+
     fun deleteConnection(id: String) {
         _uiState.update { state ->
             state.copy(
@@ -137,6 +188,7 @@ class SettingsViewModel @Inject constructor(
                 providerOrder = state.providerOrder.filterNot { it == id },
                 activeProviderId = state.activeProviderId?.takeIf { it != id },
                 editingConnectionId = null,
+                customModelIds = state.customModelIds - id,
             )
         }
         viewModelScope.launch { persist() }
@@ -226,5 +278,36 @@ class SettingsViewModel @Inject constructor(
                 activeProviderId = s.activeProviderId,
             ),
         )
+    }
+
+    companion object {
+        /** Curated starter models per known provider (live list can replace later). */
+        fun suggestedModelsFor(providerLabel: String): List<String> = when (providerLabel) {
+            "Groq" -> listOf(
+                "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "gemma2-9b-it",
+                "qwen/qwen3-32b",
+            )
+            "Cerebras" -> listOf(
+                "llama-3.3-70b",
+                "llama3.1-8b",
+                "gpt-oss-120b",
+            )
+            "OpenRouter" -> listOf(
+                "openai/gpt-4o-mini",
+                "google/gemini-2.0-flash-001",
+                "meta-llama/llama-3.3-70b-instruct",
+            )
+            "Together.ai" -> listOf(
+                "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+                "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+            )
+            "Fireworks" -> listOf(
+                "accounts/fireworks/models/llama-v3p1-70b-instruct",
+                "accounts/fireworks/models/llama-v3p1-8b-instruct",
+            )
+            else -> emptyList()
+        }
     }
 }

@@ -31,7 +31,6 @@ class LlmRouterImplTest {
         private val results: ArrayDeque<Result<String>>,
     ) : OllamaService {
         override suspend fun version() = "t"
-        override suspend fun listModels(apiKeyOverride: String?) = emptyList<String>()
         override suspend fun chat(
             model: String,
             messages: List<OllamaMessage>,
@@ -77,10 +76,6 @@ class LlmRouterImplTest {
                 override suspend fun chatCompletions(
                     url: String,
                     body: dev.repochat.core.data.remote.OpenAiChatRequestDto,
-                    headers: Map<String, String>,
-                ) = error("not used")
-                override suspend fun listModels(
-                    url: String,
                     headers: Map<String, String>,
                 ) = error("not used")
             },

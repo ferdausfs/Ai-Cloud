@@ -9,13 +9,6 @@ interface OllamaApi {
     suspend fun version(): OllamaVersionDto
 
     /**
-     * GET /api/tags — local (and some cloud) model listing.
-     * Cloud may return empty or fail; callers fall back to a curated list.
-     */
-    @retrofit2.http.GET("api/tags")
-    suspend fun tags(): OllamaTagsDto
-
-    /**
      * POST /api/chat — returns the raw body.
      *
      * Ollama Cloud often replies with NDJSON (one JSON object per line / chunk)
@@ -29,17 +22,6 @@ interface OllamaApi {
 
 @Serializable
 data class OllamaVersionDto(val version: String? = null)
-
-@Serializable
-data class OllamaTagsDto(
-    val models: List<OllamaTagModelDto> = emptyList(),
-)
-
-@Serializable
-data class OllamaTagModelDto(
-    val name: String = "",
-    val model: String? = null,
-)
 
 @Serializable
 data class OllamaChatRequestDto(

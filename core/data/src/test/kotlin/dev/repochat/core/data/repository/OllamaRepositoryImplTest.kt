@@ -29,7 +29,6 @@ class OllamaRepositoryImplTest {
     private fun repo(raw: String) = OllamaRepositoryImpl(
         api = object : OllamaApi {
             override suspend fun version(): OllamaVersionDto = OllamaVersionDto("test")
-            override suspend fun tags() = dev.repochat.core.data.remote.OllamaTagsDto()
             override suspend fun chat(body: OllamaChatRequestDto) = body(raw)
         },
         json = json,
