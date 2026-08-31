@@ -15,6 +15,9 @@ import dev.repochat.core.data.local.RepoSessionDao
 import dev.repochat.core.data.remote.GithubApi
 import dev.repochat.core.data.remote.GithubAuthInterceptor
 import dev.repochat.core.data.remote.OllamaApi
+import dev.repochat.core.domain.LlmService
+import dev.repochat.core.data.repository.LlmRouterImpl
+import dev.repochat.core.data.remote.OpenAiCompatibleApi
 import dev.repochat.core.data.remote.OllamaAuthInterceptor
 import dev.repochat.core.data.repository.ActiveRepoRepositoryImpl
 import dev.repochat.core.data.repository.ChatRepositoryImpl
@@ -46,6 +49,10 @@ abstract class DataModule {
     @Binds
     @Singleton
     abstract fun bindOllamaService(impl: OllamaRepositoryImpl): OllamaService
+
+    @Binds
+    @Singleton
+    abstract fun bindLlmService(impl: LlmRouterImpl): LlmService
 
     @Binds
     @Singleton
@@ -113,6 +120,23 @@ abstract class DataModule {
                 .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
                 .build()
                 .create(GithubApi::class.java)
+        }
+
+        @Provides
+        @Singleton
+        fun provideOpenAiCompatibleApi(json: Json): OpenAiCompatibleApi {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            // Base URL is required by Retrofit but every call uses @Url absolute paths.
+            return Retrofit.Builder()
+                .baseUrl("https://api.openai.com/")
+                .client(client)
+                .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+                .build()
+                .create(OpenAiCompatibleApi::class.java)
         }
 
         @Provides

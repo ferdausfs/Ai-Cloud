@@ -283,6 +283,8 @@ class AiTurnCoordinator @Inject constructor(
             is TurnEvent.CiStatus ->
                 _state.update { it.copy(ciStatus = event.run) }
 
+            is TurnEvent.ProviderNote -> Unit
+
             is TurnEvent.AutoFixProgress -> handleAutoFixProgress(event.event)
 
             is TurnEvent.Error -> {

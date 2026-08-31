@@ -36,17 +36,19 @@ import kotlinx.coroutines.flow.flow
  */
 @Singleton
 class AiEditOrchestrator @Inject constructor(
-    private val ollama: OllamaService,
+    private val llm: LlmService,
     private val github: GithubService,
     private val chat: ChatRepository,
     private val settings: SettingsRepository,
 ) : AiTurnRunner {
 
     override fun runTurn(request: TurnRequest, approval: Flow<Boolean>): Flow<TurnEvent> = flow {
-        val model = settings.current().modelName.trim()
-        if (model.isEmpty()) {
+        val snap = settings.current()
+        val active = snap.activeLlmOrFirst()
+        val model = active?.modelName?.trim().orEmpty().ifBlank { snap.modelName.trim() }
+        if (model.isEmpty() && snap.llmConnectionsOrdered().isEmpty() && snap.ollamaKey.isBlank()) {
             throw AppError.Configuration(
-                "No model configured yet. Add a model name (e.g. gpt-oss:120b-cloud) in Settings."
+                "No AI provider configured yet. Add Ollama or an OpenAI-compatible connection in Settings."
             )
         }
 
@@ -123,7 +125,17 @@ class AiEditOrchestrator @Inject constructor(
 
         repeat(MAX_MODEL_STEPS) {
             emit(TurnEvent.Working("Thinking"))
-            val raw = ollama.chat(model, messages)
+            val result = llm.chat(
+                messages = messages,
+                jsonMode = true,
+                preferredConnectionId = request.preferredConnectionId,
+            )
+            result.fellBackFrom?.let { from ->
+                val note = "$from hit a rate limit — switched to ${result.providerLabel} for this response"
+                chat.appendAiText(request.repoKey, request.sessionId, "↔ $note")
+                emit(TurnEvent.ProviderNote(note))
+            }
+            val raw = result.text
             messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.ASSISTANT, raw))
 
             when (val action = AiActionParser.parse(raw)) {
@@ -305,10 +317,19 @@ class AiEditOrchestrator @Inject constructor(
                 )
             },
         )
-        val raw = ollama.chat(model, messages)
+        val result = llm.chat(
+            messages = messages,
+            jsonMode = false,
+            preferredConnectionId = request.preferredConnectionId,
+        )
+        result.fellBackFrom?.let { from ->
+            val note = "$from hit a rate limit — switched to ${result.providerLabel} for this response"
+            chat.appendAiText(request.repoKey, request.sessionId, "↔ $note")
+            emit(TurnEvent.ProviderNote(note))
+        }
         // Prefer plain text. Only unwrap when the model still emits the JSON
         // tool contract (common if the user just left a repo chat).
-        val text = unwrapGeneralReply(raw)
+        val text = unwrapGeneralReply(result.text)
         chat.appendAiText(request.repoKey, request.sessionId, text)
         emit(TurnEvent.Reply(text))
     }
