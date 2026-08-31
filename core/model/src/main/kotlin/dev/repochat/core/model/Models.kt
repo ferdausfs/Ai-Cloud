@@ -1,11 +1,77 @@
 package dev.repochat.core.model
 
-/** User-configurable secrets/settings, persisted in EncryptedSharedPreferences. */
+/**
+ * How an LLM endpoint is reached. [OLLAMA] uses the bespoke Ollama Cloud API
+ * (NDJSON). [OPENAI_COMPATIBLE] uses standard /v1/chat/completions.
+ */
+@kotlinx.serialization.Serializable
+enum class ConnectionType { OLLAMA, OPENAI_COMPATIBLE, GITHUB }
+
+/**
+ * One configured service endpoint (LLM provider or, later, other APIs).
+ * Multiple OPENAI_COMPATIBLE rows let the user keep Groq + Cerebras + etc.
+ */
+@kotlinx.serialization.Serializable
+data class ServiceConnection(
+    val id: String,
+    val type: ConnectionType,
+    /** User nickname, e.g. "Groq free tier". */
+    val label: String,
+    /** Base URL without trailing slash, e.g. https://api.groq.com/openai/v1 */
+    val baseUrl: String = "",
+    val apiKey: String = "",
+    /** Default model for this connection. */
+    val modelName: String = "",
+)
+
+/** Result of a single LLM completion, including which connection answered. */
+data class LlmChatResult(
+    val text: String,
+    val connectionId: String,
+    val providerLabel: String,
+    /** Prior provider label when auto-fallback kicked in; null if first try won. */
+    val fellBackFrom: String? = null,
+)
+
+/** User-configurable secrets/settings, persisted with EncryptedSharedPreferences. */
 data class AppSettings(
+    /** @deprecated Prefer [connections] of type OLLAMA — kept for migration. */
     val ollamaKey: String = "",
+    /** @deprecated Prefer per-connection modelName. */
     val modelName: String = "",
     val githubPat: String = "",
-)
+    /** All configured connections (LLM + reserved types). */
+    val connections: List<ServiceConnection> = emptyList(),
+    /**
+     * Ordered connection ids for auto-fallback. Only LLM connections are used
+     * at chat time; missing ids are skipped.
+     */
+    val providerOrder: List<String> = emptyList(),
+    /** Manual override for the next turns (null = follow [providerOrder]). */
+    val activeProviderId: String? = null,
+) {
+    /** LLM connections only, in [providerOrder] then any extras. */
+    fun llmConnectionsOrdered(): List<ServiceConnection> {
+        val llms = connections.filter {
+            it.type == ConnectionType.OLLAMA || it.type == ConnectionType.OPENAI_COMPATIBLE
+        }
+        if (llms.isEmpty()) return emptyList()
+        val byId = llms.associateBy { it.id }
+        val ordered = providerOrder.mapNotNull { byId[it] }
+        val rest = llms.filter { it.id !in providerOrder.toSet() }
+        return ordered + rest
+    }
+
+    fun connection(id: String?): ServiceConnection? =
+        id?.let { id0 -> connections.firstOrNull { it.id == id0 } }
+
+    fun activeLlmOrFirst(): ServiceConnection? {
+        activeProviderId?.let { id -> connection(id) }?.let { c ->
+            if (c.type == ConnectionType.OLLAMA || c.type == ConnectionType.OPENAI_COMPATIBLE) return c
+        }
+        return llmConnectionsOrdered().firstOrNull()
+    }
+}
 
 data class RepoSummary(
     val id: Long,
@@ -200,6 +266,8 @@ data class TurnRequest(
      */
     val autoFixUntilCiGreen: Boolean = false,
     val autoFixMaxAttempts: Int = 5,
+    /** Force a specific LLM connection for this turn (manual chip/picker). */
+    val preferredConnectionId: String? = null,
 ) {
     val isGeneral: Boolean get() = mode == ChatMode.GENERAL
 }
@@ -210,6 +278,8 @@ sealed interface TurnEvent {
     data class TreeReady(val truncated: Boolean) : TurnEvent
     data class ReadingFile(val path: String) : TurnEvent
     data class Reply(val text: String) : TurnEvent
+    /** Informational note when auto-fallback switched providers mid-turn. */
+    data class ProviderNote(val text: String) : TurnEvent
     data class ProposeWrite(val messageId: Long, val change: PendingChange) : TurnEvent
     data class WriteCommitted(val messageId: Long, val change: PendingChange) : TurnEvent
     data class WriteDeclined(val messageId: Long, val change: PendingChange) : TurnEvent

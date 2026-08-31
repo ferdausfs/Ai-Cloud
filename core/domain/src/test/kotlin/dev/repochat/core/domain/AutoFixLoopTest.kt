@@ -80,7 +80,7 @@ class AutoFixLoopTest {
 
     @Test
     fun loop_passesOnFirstGreenCi() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(listOf(writeAction("src/Main.kt", "fun main()={}", "fix: compile"))),
         )
         val github = FakeGithubService().apply {
@@ -108,7 +108,7 @@ class AutoFixLoopTest {
 
     @Test
     fun loop_fetchesRealLog_onFailure_thenPasses() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(
                 listOf(
                     writeAction("src/Main.kt", "fun broken() = NOPE", "fix: broken"),
@@ -154,7 +154,7 @@ class AutoFixLoopTest {
 
     @Test
     fun loop_givesUpWithHonestSummary() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(
                 listOf(
                     writeAction("a.kt", "x", "try 1"),

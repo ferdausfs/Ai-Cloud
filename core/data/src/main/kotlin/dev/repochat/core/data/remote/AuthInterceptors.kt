@@ -25,12 +25,14 @@ internal class GithubAuthInterceptor(
 
 /**
  * Attaches the Ollama Cloud API key (Bearer) at call time.
+ * [OllamaKeyOverride] lets a per-connection call temporarily replace the
+ * default Settings key (used by the multi-provider router).
  */
 internal class OllamaAuthInterceptor(
     private val apiKey: () -> String,
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val key = apiKey()
+        val key = OllamaKeyOverride.current() ?: apiKey()
         val request = if (key.isBlank()) {
             chain.request()
         } else {
@@ -39,5 +41,33 @@ internal class OllamaAuthInterceptor(
                 .build()
         }
         return chain.proceed(request)
+    }
+}
+
+/** Process-local override for the next Ollama call (single-threaded coroutine use). */
+object OllamaKeyOverride {
+    @Volatile
+    private var override: String? = null
+
+    fun current(): String? = override
+
+    fun <T> withKey(key: String?, block: () -> T): T {
+        val prev = override
+        override = key
+        return try {
+            block()
+        } finally {
+            override = prev
+        }
+    }
+
+    suspend fun <T> withKeySuspend(key: String?, block: suspend () -> T): T {
+        val prev = override
+        override = key
+        return try {
+            block()
+        } finally {
+            override = prev
+        }
     }
 }

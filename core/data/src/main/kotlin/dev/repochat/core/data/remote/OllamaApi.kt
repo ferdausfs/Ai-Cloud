@@ -28,7 +28,8 @@ data class OllamaChatRequestDto(
     val model: String,
     val messages: List<OllamaMessageDto>,
     val stream: Boolean = false,
-    val format: String = "json",
+    /** "json" for tool schema turns; null for free-form general chat. */
+    val format: String? = "json",
 )
 
 @Serializable

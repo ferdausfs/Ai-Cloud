@@ -13,6 +13,8 @@ sealed class AppError(
     enum class Provider(val label: String) {
         GITHUB("GitHub"),
         OLLAMA("Ollama"),
+        /** Generic OpenAI-compatible cloud LLM (Groq, Cerebras, OpenRouter, …). */
+        LLM("LLM"),
     }
 
     /** 401 — missing/invalid/expired credential. */

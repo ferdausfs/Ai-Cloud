@@ -38,12 +38,48 @@ class FakeOllamaService(
         return versionOverride
     }
 
-    override suspend fun chat(model: String, messages: List<OllamaMessage>): String {
+    override suspend fun chat(
+        model: String,
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean,
+        apiKeyOverride: String?,
+    ): String {
         failure?.let { throw it }
         lastMessages = messages
         return if (responses.isNotEmpty()) responses.removeFirst()
         else """{"action":"reply","message":"done"}"""
     }
+}
+
+/** Test double for [LlmService] — wraps a response queue like FakeOllamaService. */
+class FakeLlmService(
+    private val responses: ArrayDeque<String> = ArrayDeque(),
+    var failure: AppError? = null,
+    var label: String = "TestLLM",
+) : LlmService {
+    var lastMessages: List<OllamaMessage> = emptyList()
+    var lastJsonMode: Boolean? = null
+    var callCount: Int = 0
+
+    override suspend fun chat(
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean,
+        preferredConnectionId: String?,
+    ): dev.repochat.core.model.LlmChatResult {
+        callCount++
+        failure?.let { throw it }
+        lastMessages = messages
+        lastJsonMode = jsonMode
+        val text = if (responses.isNotEmpty()) responses.removeFirst()
+        else """{"action":"reply","message":"done"}"""
+        return dev.repochat.core.model.LlmChatResult(
+            text = text,
+            connectionId = "test",
+            providerLabel = label,
+        )
+    }
+
+    override suspend fun test(connection: dev.repochat.core.model.ServiceConnection): String = "ok"
 }
 
 class FakeGithubService : GithubService {

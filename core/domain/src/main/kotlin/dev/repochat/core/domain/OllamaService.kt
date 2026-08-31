@@ -11,6 +11,17 @@ interface OllamaService {
     /** Ping used by the Settings "Test connection" — returns the API version. */
     suspend fun version(): String
 
-    /** One chat completion with structured (JSON) output. */
-    suspend fun chat(model: String, messages: List<OllamaMessage>): String
+    /**
+     * One chat completion.
+     * @param jsonMode when true, request structured JSON (`format=json`).
+     * @param apiKeyOverride when non-null, use this key instead of Settings cache
+     *   (per-connection Ollama keys).
+     * @param model model id for this call.
+     */
+    suspend fun chat(
+        model: String,
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean = true,
+        apiKeyOverride: String? = null,
+    ): String
 }

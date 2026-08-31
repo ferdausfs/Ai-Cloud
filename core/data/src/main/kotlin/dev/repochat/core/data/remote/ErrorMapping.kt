@@ -42,6 +42,14 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
             }
             AppError.Provider.OLLAMA ->
                 errorJson.decodeFromString(OllamaErrorDto.serializer(), body).error
+            AppError.Provider.LLM -> {
+                try {
+                    val dto = errorJson.decodeFromString(OpenAiErrorDto.serializer(), body)
+                    dto.error?.message ?: dto.message
+                } catch (_: Exception) {
+                    null
+                }
+            }
         }
     } catch (_: Exception) {
         null
@@ -56,18 +64,24 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
     return when (code) {
         401 -> AppError.Unauthorized(
             provider,
-            if (provider == AppError.Provider.GITHUB) {
-                "Your GitHub token was rejected — it is invalid or expired. Update it in Settings."
-            } else {
-                "Your Ollama API key was rejected. Check it in Settings."
+            when (provider) {
+                AppError.Provider.GITHUB ->
+                    "Your GitHub token was rejected — it is invalid or expired. Update it in Settings."
+                AppError.Provider.OLLAMA ->
+                    "Your Ollama API key was rejected. Check it in Settings."
+                AppError.Provider.LLM ->
+                    "Your LLM API key was rejected. Check it in Settings."
             },
         )
         403 -> AppError.RateLimited(
             provider,
-            if (provider == AppError.Provider.GITHUB) {
-                "GitHub API rate limit reached — try again in a few minutes."
-            } else {
-                "Ollama rejected the request (403). Check your API key scope in Settings."
+            when (provider) {
+                AppError.Provider.GITHUB ->
+                    "GitHub API rate limit reached — try again in a few minutes."
+                AppError.Provider.OLLAMA ->
+                    "Ollama rejected the request (403). Check your API key scope in Settings."
+                AppError.Provider.LLM ->
+                    "LLM provider rejected the request (403). Check key/quota in Settings."
             },
         )
         404 -> AppError.NotFound(detail)
@@ -76,10 +90,13 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
         )
         429 -> AppError.RateLimited(
             provider,
-            if (provider == AppError.Provider.OLLAMA) {
-                "You've hit the Ollama rate limit. The free tier allows a limited number of requests per minute — wait a moment and retry."
-            } else {
-                "GitHub API rate limit reached — try again in a few minutes."
+            when (provider) {
+                AppError.Provider.OLLAMA ->
+                    "You've hit the Ollama rate limit. The free tier allows a limited number of requests per minute — wait a moment and retry."
+                AppError.Provider.LLM ->
+                    "LLM provider rate limit reached. The app can fall back to the next configured provider."
+                AppError.Provider.GITHUB ->
+                    "GitHub API rate limit reached — try again in a few minutes."
             },
         )
         else -> AppError.Api(provider, code, detail)

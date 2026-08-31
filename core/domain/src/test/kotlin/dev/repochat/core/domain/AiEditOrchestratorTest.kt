@@ -29,7 +29,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `reply action stores and emits the message`() = runTest {
-        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"hello!"}""")))
+        val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"hello!"}""")))
         val github = FakeGithubService()
         val chat = FakeChatRepository()
         val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
@@ -44,7 +44,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `read then write round-trips through context and waits for approval`() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(
                 listOf(
                     """{"action":"read_file","path":"src/Main.kt"}""",
@@ -82,7 +82,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `rejected write commits nothing`() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(listOf("""{"action":"write_file","path":"a.txt","content":"new","commit_message":"feat: a"}"""))
         )
         val github = FakeGithubService()
@@ -107,7 +107,7 @@ class AiEditOrchestratorTest {
     @Test
     fun `missing model name surfaces a configuration error`() = runTest {
         val orchestrator = AiEditOrchestrator(
-            FakeOllamaService(), FakeGithubService(), FakeChatRepository(),
+            FakeLlmService(), FakeGithubService(), FakeChatRepository(),
             FakeSettingsRepository(AppSettings(modelName = "  ")),
         )
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
@@ -117,7 +117,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `rate limit errors are surfaced as typed events`() = runTest {
-        val ollama = FakeOllamaService(failure = AppError.RateLimited(AppError.Provider.OLLAMA, "rate limited"))
+        val ollama = FakeLlmService(failure = AppError.RateLimited(AppError.Provider.OLLAMA, "rate limited"))
         val orchestrator = AiEditOrchestrator(
             ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository()
         )
@@ -129,7 +129,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `text attachment is prepended to the user turn`() = runTest {
-        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"got it"}""")))
+        val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"got it"}""")))
         val orchestrator = AiEditOrchestrator(
             ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(),
         )
@@ -151,7 +151,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `image attachment omits bytes when model lacks vision`() = runTest {
-        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"no vision"}""")))
+        val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"no vision"}""")))
         val orchestrator = AiEditOrchestrator(
             ollama, FakeGithubService(), FakeChatRepository(),
             FakeSettingsRepository(AppSettings(modelName = "gpt-oss:120b-cloud")),
@@ -173,7 +173,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `image attachment includes bytes for vision models`() = runTest {
-        val ollama = FakeOllamaService(ArrayDeque(listOf("""{"action":"reply","message":"i see it"}""")))
+        val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"i see it"}""")))
         val orchestrator = AiEditOrchestrator(
             ollama, FakeGithubService(), FakeChatRepository(),
             FakeSettingsRepository(AppSettings(modelName = "llava:13b")),
@@ -194,7 +194,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `create_pull_request opens PR on working branch then replies`() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(
                 listOf(
                     """{"action":"create_pull_request","title":"AI fixes","body":"please review"}""",
@@ -214,7 +214,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `check_ci_status summarizes latest run`() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(
                 listOf(
                     """{"action":"check_ci_status"}""",
@@ -245,7 +245,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `general mode is plain chat without tools or branch`() = runTest {
-        val ollama = FakeOllamaService(ArrayDeque(listOf("Sure — use a sealed class for the states.")))
+        val ollama = FakeLlmService(ArrayDeque(listOf("Sure — use a sealed class for the states.")))
         val github = FakeGithubService()
         val chat = FakeChatRepository()
         val session = chat.createGeneralSession()
@@ -274,7 +274,7 @@ class AiEditOrchestratorTest {
 
     @Test
     fun `general mode unwraps JSON reply if model still uses tool schema`() = runTest {
-        val ollama = FakeOllamaService(
+        val ollama = FakeLlmService(
             ArrayDeque(listOf("""{"action":"reply","message":"plain answer"}""")),
         )
         val chat = FakeChatRepository()
