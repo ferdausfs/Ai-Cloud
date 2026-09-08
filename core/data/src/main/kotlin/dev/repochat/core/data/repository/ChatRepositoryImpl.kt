@@ -103,8 +103,9 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteConversation(repoKey: String) {
-        messageDao.clearAllForRepo(repoKey)
-        sessionDao.delete(repoKey)
+        // Single transaction: messages and session are removed together so a
+        // crash between the two statements can never orphan message rows.
+        sessionDao.deleteConversation(repoKey)
     }
 
     override fun messages(repoKey: String, sessionId: String): Flow<List<ChatMessage>> =
@@ -188,6 +189,9 @@ class ChatRepositoryImpl @Inject constructor(
         messageDao.clear(repoKey, sessionId)
         sessionDao.touch(repoKey, System.currentTimeMillis())
     }
+
+    override suspend fun rejectStalePendingWrites(repoKey: String, sessionId: String): Int =
+        messageDao.rejectStalePending(repoKey, sessionId)
 
     private suspend fun afterAppend(repoKey: String, text: String, isUser: Boolean) {
         val now = System.currentTimeMillis()

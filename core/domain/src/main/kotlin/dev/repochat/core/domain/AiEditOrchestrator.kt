@@ -200,7 +200,7 @@ class AiEditOrchestrator @Inject constructor(
                             commitMessage = change.commitMessage,
                         )
                         chat.markWrite(rowId, MessageStatus.APPROVED, result.newSha)
-                        emit(TurnEvent.WriteCommitted(rowId, change))
+                        emit(TurnEvent.WriteCommitted(rowId, change, newSha = result.newSha))
                     } else {
                         chat.markWrite(rowId, MessageStatus.REJECTED, null)
                         emit(TurnEvent.WriteDeclined(rowId, change))
@@ -246,9 +246,12 @@ class AiEditOrchestrator @Inject constructor(
                 }
 
                 is AiAction.CheckCiStatus -> {
-                    val targetBranch = action.branchOverride
-                        ?.takeIf { it.isNotBlank() }
-                        ?: branch
+                    // CI is always checked on THIS session's working branch.
+                    // A model-supplied branch override (from a confused or
+                    // injected response) could point at another branch —
+                    // e.g. main — and mislead the user or the auto-fix loop,
+                    // so it is deliberately ignored here (AUD-010).
+                    val targetBranch = branch
                     emit(TurnEvent.Working("Checking CI on $targetBranch"))
                     val runs = github.listWorkflowRuns(
                         owner = request.owner,

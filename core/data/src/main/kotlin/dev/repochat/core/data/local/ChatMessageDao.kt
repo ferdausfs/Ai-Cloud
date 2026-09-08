@@ -32,6 +32,17 @@ interface ChatMessageDao {
     @Query("UPDATE chat_messages SET status = :status, base64_sha = :newSha WHERE id = :id")
     suspend fun updateStatus(id: Long, status: String, newSha: String?)
 
+    /**
+     * Proposals left PENDING by a process death have no live approval gate
+     * anymore — resolve them to REJECTED in one statement. Returns row count.
+     */
+    @Query(
+        "UPDATE chat_messages SET status = 'REJECTED' " +
+            "WHERE repo_key = :repoKey AND session_id = :sessionId " +
+            "AND kind = 'WRITE_FILE' AND status = 'PENDING'",
+    )
+    suspend fun rejectStalePending(repoKey: String, sessionId: String): Int
+
     @Query("DELETE FROM chat_messages WHERE repo_key = :repoKey AND session_id = :sessionId")
     suspend fun clear(repoKey: String, sessionId: String)
 

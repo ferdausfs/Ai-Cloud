@@ -188,6 +188,8 @@ data class GithubWorkflowRunDto(
     val conclusion: String? = null, // "success" | "failure" | "cancelled" | null while running
     @SerialName("html_url") val htmlUrl: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
+    /** Commit SHA the run executed — used to attribute runs to our commits. */
+    @SerialName("head_sha") val headSha: String? = null,
 )
 
 @Serializable

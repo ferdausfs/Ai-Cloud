@@ -306,6 +306,20 @@ class FakeChatRepository(
         stored.removeAll { it.repoKey == repoKey && it.sessionId == sessionId }
     }
 
+    override suspend fun rejectStalePendingWrites(repoKey: String, sessionId: String): Int {
+        var resolved = 0
+        for (i in stored.indices) {
+            val m = stored[i]
+            if (m.repoKey == repoKey && m.sessionId == sessionId &&
+                m.kind == MessageKind.WRITE_FILE && m.status == MessageStatus.PENDING
+            ) {
+                stored[i] = m.copy(status = MessageStatus.REJECTED)
+                resolved++
+            }
+        }
+        return resolved
+    }
+
     private fun append(message: ChatMessage): Long {
         stored += message
         return message.id
