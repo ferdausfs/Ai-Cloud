@@ -138,11 +138,12 @@ OpenAI-shaped endpoint is a preset, not a rewrite. UI → ViewModel → UseCase 
 
 1. **Build** — `:app:lintDebug`, `:app:assembleDebug`, the full unit test
    suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
-   `:app:testDebugUnitTest`), plus connected emulator tests and a dependency
-   scan.
+   `:app:testDebugUnitTest`), plus connected emulator tests. The build also
+   submits the Gradle dependency graph, so known CVEs surface as Dependabot
+   alerts; pull requests additionally run a Dependency Review gate.
 2. **Auto-merge into `main`** — only `ai-chat/*` working branches are merged,
-   and only after every job is green (`--no-ff` merge commit). `main` can
-   never receive a red commit.
+   and only after build + connected tests are green (`--no-ff` merge commit).
+   `main` can never receive a red commit.
 
 The app itself still never writes to `main` — AI commits always land on
 `ai-chat/<session-id>` working branches.
