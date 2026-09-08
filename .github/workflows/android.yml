@@ -1,6 +1,6 @@
 # Validate debug and release builds on every working branch.
 # CI never pushes to the default branch or opens pull requests.
-name: Android CI
+name: Android CI & Signed Release
 
 on:
   push:
@@ -71,6 +71,39 @@ jobs:
           fi
           bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
+      # Release verification: signature chain + public cert digests + checksum.
+      # On pull_request builds there is nothing signed — verify is skipped.
+      - name: Verify APK signature and record certificate fingerprint
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          "$APKSIGNER" verify --verbose "$APK" > /tmp/apksigner-verbose.txt
+          grep -E "^Verified using" /tmp/apksigner-verbose.txt || true
+          echo "## Signed release APK (v2 identity)" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '```'
+            "$APKSIGNER" verify --print-certs "$APK"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compute APK SHA-256 checksum
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          SIZE=$(stat -c%s "$APK")
+          {
+            echo '```'
+            echo "sha256: $SHA"
+            echo "size:   $SIZE bytes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload lint results
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,13 +132,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload release APK artifact
+      # The only artifact that ships to users: the SIGNED release APK.
+      # Keystores, passwords and temporary files are never uploaded.
+      - name: Upload signed release APK artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: ai-cloud-release-signed-v2
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
   connected-tests:
     name: Connected Android Tests
