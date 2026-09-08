@@ -9,6 +9,7 @@ import dev.repochat.core.data.remote.GithubPutFileRequestDto
 import dev.repochat.core.data.remote.GithubRepoDto
 import dev.repochat.core.data.remote.mapHttpErrors
 import dev.repochat.core.domain.GithubService
+import dev.repochat.core.model.AiActionParser
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.CommitResult
 import dev.repochat.core.model.GitFile
@@ -99,14 +100,15 @@ class GithubRepositoryImpl @Inject constructor(
     }
 
     override suspend fun fileContent(owner: String, repo: String, path: String, branch: String): GitFile? {
+        val safePath = safeRepoPathOrThrow(path)
         val dto = try {
             mapHttpErrors(AppError.Provider.GITHUB) {
-                api.file(contentsUrl(owner, repo, path, branch))
+                api.file(contentsUrl(owner, repo, safePath, branch))
             }
         } catch (e: AppError.NotFound) {
             return null
         }
-        return dto.toGitFile(path)
+        return dto.toGitFile(safePath)
     }
 
     override suspend fun commitFile(
@@ -118,6 +120,7 @@ class GithubRepositoryImpl @Inject constructor(
         baseSha: String?,
         commitMessage: String,
     ): CommitResult {
+        val safePath = safeRepoPathOrThrow(path)
         val body = GithubPutFileRequestDto(
             message = commitMessage,
             content = Base64.encodeToString(newContent.toByteArray(Charsets.UTF_8), Base64.NO_WRAP),
@@ -127,9 +130,9 @@ class GithubRepositoryImpl @Inject constructor(
             branch = branch,
         )
         val response = mapHttpErrors(AppError.Provider.GITHUB) {
-            api.putFile(contentsUrl(owner, repo, path, branch), body)
+            api.putFile(contentsUrl(owner, repo, safePath, branch), body)
         }
-        return CommitResult(path = path, newSha = response.content?.sha.orEmpty())
+        return CommitResult(path = safePath, newSha = response.content?.sha.orEmpty())
     }
 
     override suspend fun createPullRequest(
@@ -265,3 +268,15 @@ class GithubRepositoryImpl @Inject constructor(
         0L
     }
 }
+
+/**
+ * Repository-boundary path guard (defense in depth): the model-facing
+ * [dev.repochat.core.model.AiActionParser.sanitizePath] is the primary choke
+ * point, but anything that reaches the GitHub contents API is re-validated
+ * here so a future caller can never bypass the sanitizer by accident.
+ * Normalizes benign paths (leading "/" or "./") and rejects traversal,
+ * .git internals, blank and oversized paths with a typed [AppError].
+ */
+internal fun safeRepoPathOrThrow(path: String): String =
+    AiActionParser.sanitizePath(path)
+        ?: throw AppError.Configuration("Unsafe file path rejected: \"${path.take(120)}\"")

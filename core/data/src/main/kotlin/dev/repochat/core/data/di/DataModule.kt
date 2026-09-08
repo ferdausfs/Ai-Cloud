@@ -111,8 +111,14 @@ abstract class DataModule {
         @Provides
         @Singleton
         fun provideGithubApi(json: Json, settings: SettingsRepository): GithubApi {
+            // Same reasoning as the LLM clients: OkHttp's 10s defaults are too
+            // tight for large file trees / contents on slow networks — without
+            // this, a slow fetch surfaces as a misleading "no network" error.
             val client = OkHttpClient.Builder()
                 .addInterceptor(GithubAuthInterceptor { settings.cached().githubPat })
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             return Retrofit.Builder()
                 .baseUrl("https://api.github.com/")
