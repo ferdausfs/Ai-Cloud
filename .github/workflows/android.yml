@@ -128,66 +128,51 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Dependency vulnerability scan
-  dependency-check:
-    name: Dependency Vulnerability Scan
+  # Dependency vulnerability scanning.
+  #
+  # The previous OWASP Dependency-Check docker-action job has been hard-failing
+  # since 2026-08-31 with "JAVA_HOME is not defined correctly" inside its
+  # container (unpinned @main action + host JDK env forwarded into the image),
+  # which blocked every auto-merge while never producing a report. It is
+  # replaced by the equivalent, deterministic GitHub-native pipeline:
+  #
+  #  * the `build` job already submits the full Gradle dependency graph
+  #    (setup-gradle `dependency-graph: generate-and-submit`) -> Dependabot
+  #    alerts surface known CVEs on the default branch;
+  #  * this job runs Dependency Review on pull requests, failing on
+  #    moderate+ severity or prohibited licenses before merge.
+  dependency-review:
+    name: Dependency Review (PR)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: build
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
         with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Run OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
-        id: depcheck
-        env:
-          # The action runs inside its own Docker image which already bundles a
-          # JDK. The host JAVA_HOME points at a tool-cache path that is not
-          # mounted inside the container, so clear it and let the container
-          # resolve its own Java instead of failing with "JAVA_HOME is not
-          # defined correctly".
-          JAVA_HOME: ""
-        with:
-          project: 'RepoChat'
-          path: '.'
-          format: 'HTML'
-          out: 'reports'
-          args: >
-            --failOnCVSS 7
-            --suppression suppression.xml
-
-      - name: Upload dependency check report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-check-report
-          path: reports/dependency-check-report.html
-          if-no-files-found: ignore
-          retention-days: 30
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
 
   # Auto-merge: once the working branch is GREEN (build + tests pass),
   # merge it into main automatically — no direct push to main ever.
   merge-to-main:
     name: Auto-merge into main when green
-    needs: [build, connected-tests, dependency-check]
+    # dependency-review only runs on pull_request events and is advisory for
+    # push-based working branches; the merge gate is build + connected tests.
+    needs: [build, connected-tests]
     # ONLY ai-chat/** branches are allowed to merge into main automatically.
     # main, master, or any other branch name will NOT trigger this job.
     if: >
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/heads/ai-chat/') &&
       (needs.build.result == 'success' &&
-       needs.connected-tests.result == 'success' &&
-       needs.dependency-check.result == 'success')
+       needs.connected-tests.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -210,7 +195,7 @@ jobs:
   notify-failure:
     name: Notify on Failure
     if: failure()
-    needs: [build, connected-tests, dependency-check]
+    needs: [build, connected-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Send failure notification

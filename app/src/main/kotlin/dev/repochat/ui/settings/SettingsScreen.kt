@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -68,6 +69,8 @@ import dev.repochat.R
 import dev.repochat.core.model.ConnectionType
 import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
 import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
+import dev.repochat.core.model.ModelPriceClass
+import dev.repochat.core.model.ModelPricing
 import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.matchOpenAiPreset
 
@@ -277,16 +280,33 @@ private fun ProviderRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = connection.label.ifBlank { connection.type.name },
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (isActive) {
+                    Spacer(Modifier.width(6.dp))
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text("ACTIVE", style = MaterialTheme.typography.labelSmall) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            disabledContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            disabledLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                    )
+                }
+            }
             Text(
-                text = connection.label.ifBlank { connection.type.name },
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = buildString {
-                    append(connection.modelName.ifBlank { "—" })
-                    if (isActive) append(" · active")
-                },
+                text = connection.modelName.ifBlank { "—" },
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Masked key status — the full key is NEVER displayed on the card.
+            Text(
+                text = SettingsViewModel.maskKey(connection.apiKey),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -409,12 +429,17 @@ private fun ConnectionEditor(
                 SettingsViewModel.suggestedModelsFor(matchOpenAiPreset(connection.baseUrl).label)
             else -> emptyList()
         }
-        val allModels = SettingsViewModel.sortModelsFreeFirst(
+        val providerLabel = when (connection.type) {
+            ConnectionType.OPENAI_COMPATIBLE -> matchOpenAiPreset(connection.baseUrl).label
+            else -> connection.label
+        }
+        val allModels = ModelPricing.sortFreeFirst(
             modelList.models.ifEmpty { curated },
+            providerLabel,
         )
-        val hasFree = allModels.any { SettingsViewModel.isFreeModelId(it) }
+        val hasFree = allModels.any { ModelPricing.isFreeTier(it, providerLabel) }
         val modelChoices = if (freeOnly && hasFree) {
-            allModels.filter { SettingsViewModel.isFreeModelId(it) }
+            allModels.filter { ModelPricing.isFreeTier(it, providerLabel) }
         } else {
             allModels
         }
@@ -426,9 +451,11 @@ private fun ConnectionEditor(
             modelName = connection.modelName,
             models = modelChoices,
             allModels = allModels,
+            providerLabel = providerLabel,
             useCustom = forceCustom,
             loading = loading,
             failedDetail = modelList.detail,
+            offlineCache = modelList.status == ModelListStatus.OfflineCache,
             freeOnly = freeOnly,
             showFreeFilter = hasFree,
             onFreeOnlyChange = onFreeOnlyChange,
@@ -469,14 +496,19 @@ private fun ConnectionEditor(
     }
 }
 
+/** Which subset of models the picker dropdown shows. */
+private enum class ModelFilter { All, Free, Paid }
+
 @Composable
 private fun ModelPicker(
     modelName: String,
     models: List<String>,
     allModels: List<String>,
+    providerLabel: String,
     useCustom: Boolean,
     loading: Boolean,
     failedDetail: String,
+    offlineCache: Boolean,
     freeOnly: Boolean,
     showFreeFilter: Boolean,
     onFreeOnlyChange: (Boolean) -> Unit,
@@ -506,6 +538,23 @@ private fun ModelPicker(
             }
         }
     }
+    // Offline indicator: models come from the last successful fetch.
+    if (offlineCache) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Rounded.CloudOff,
+                null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = failedDetail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
     if (showFreeFilter) {
         Spacer(Modifier.height(4.dp))
         FilterChip(
@@ -530,17 +579,24 @@ private fun ModelPicker(
                 },
                 supportingText = {
                     if (modelName.isNotBlank()) {
-                        val free = SettingsViewModel.isFreeModelId(modelName)
-                        Text(
-                            if (free) {
+                        val priceClass = ModelPricing.classify(modelName, providerLabel)
+                        val label = when (priceClass) {
+                            ModelPriceClass.FREE ->
                                 stringResource(R.string.settings_model_free)
-                            } else {
+                            ModelPriceClass.PROMOTIONAL ->
+                                "Promotional — free availability is set by the provider and may change"
+                            ModelPriceClass.PAID ->
                                 stringResource(R.string.settings_model_paid)
-                            },
-                            color = if (free) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                            ModelPriceClass.UNKNOWN ->
+                                "Pricing unavailable"
+                        }
+                        Text(
+                            label,
+                            color = when (priceClass) {
+                                ModelPriceClass.FREE, ModelPriceClass.PROMOTIONAL ->
+                                    MaterialTheme.colorScheme.primary
+                                else ->
+                                    MaterialTheme.colorScheme.onSurfaceVariant
                             },
                         )
                     }
@@ -551,10 +607,51 @@ private fun ModelPicker(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
             ) {
-                models.forEach { id ->
+                // Search + price filter inside the dropdown (premium picker).
+                var query by remember { mutableStateOf("") }
+                var filter by remember { mutableStateOf(ModelFilter.All) }
+                val visible = models
+                    .filter { it.contains(query.trim(), ignoreCase = true) }
+                    .filter { id ->
+                        when (filter) {
+                            ModelFilter.All -> true
+                            ModelFilter.Free -> ModelPricing.isFreeTier(id, providerLabel)
+                            ModelFilter.Paid -> ModelPricing.classify(id, providerLabel) ==
+                                ModelPriceClass.PAID
+                        }
+                    }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search models") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ModelFilter.entries.forEach { option ->
+                        FilterChip(
+                            selected = filter == option,
+                            onClick = { filter = option },
+                            label = { Text(option.name, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                if (visible.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("No models match") },
+                        onClick = {},
+                        enabled = false,
+                    )
+                }
+                visible.forEach { id ->
                     DropdownMenuItem(
                         text = {
-                            ModelIdRow(id = id)
+                            ModelIdRow(id = id, providerLabel = providerLabel)
                         },
                         onClick = {
                             expanded = false
@@ -581,7 +678,7 @@ private fun ModelPicker(
             supportingText = {
                 Text(
                     when {
-                        failedDetail.isNotBlank() -> failedDetail
+                        failedDetail.isNotBlank() && !offlineCache -> failedDetail
                         models.isEmpty() && allModels.isEmpty() ->
                             stringResource(R.string.settings_models_load_failed)
                         models.isEmpty() && freeOnly ->
@@ -600,8 +697,8 @@ private fun ModelPicker(
 }
 
 @Composable
-private fun ModelIdRow(id: String) {
-    val free = SettingsViewModel.isFreeModelId(id)
+private fun ModelIdRow(id: String, providerLabel: String) {
+    val priceClass = ModelPricing.classify(id, providerLabel)
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -619,24 +716,24 @@ private fun ModelIdRow(id: String) {
             enabled = false,
             label = {
                 Text(
-                    if (free) {
-                        stringResource(R.string.settings_model_free)
-                    } else {
-                        stringResource(R.string.settings_model_paid)
-                    },
+                    ModelPricing.badgeLabel(priceClass),
                     style = MaterialTheme.typography.labelSmall,
                 )
             },
             colors = AssistChipDefaults.assistChipColors(
-                disabledContainerColor = if (free) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
+                disabledContainerColor = when (priceClass) {
+                    ModelPriceClass.FREE, ModelPriceClass.PROMOTIONAL ->
+                        MaterialTheme.colorScheme.primaryContainer
+                    ModelPriceClass.PAID ->
+                        MaterialTheme.colorScheme.surfaceVariant
+                    ModelPriceClass.UNKNOWN ->
+                        MaterialTheme.colorScheme.surface
                 },
-                disabledLabelColor = if (free) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                disabledLabelColor = when (priceClass) {
+                    ModelPriceClass.FREE, ModelPriceClass.PROMOTIONAL ->
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else ->
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 },
             ),
         )

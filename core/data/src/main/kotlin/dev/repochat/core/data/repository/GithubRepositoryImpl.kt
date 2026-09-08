@@ -65,12 +65,23 @@ class GithubRepositoryImpl @Inject constructor(
         val head = mapHttpErrors(AppError.Provider.GITHUB) {
             api.branch(owner, repo, defaultBranch)
         }
-        mapHttpErrors(AppError.Provider.GITHUB) {
-            api.createRef(
-                owner = owner,
-                repo = repo,
-                body = GithubCreateRefRequestDto(ref = "refs/heads/$branch", sha = head.obj.sha),
-            )
+        try {
+            mapHttpErrors(AppError.Provider.GITHUB) {
+                api.createRef(
+                    owner = owner,
+                    repo = repo,
+                    body = GithubCreateRefRequestDto(ref = "refs/heads/$branch", sha = head.obj.sha),
+                )
+            }
+        } catch (e: AppError.Api) {
+            // Concurrent turns can race to create the same session branch; the
+            // loser gets 422 "Reference already exists". That is success from
+            // the caller's point of view — re-fetch instead of failing the turn.
+            val alreadyExists = e.code == 422 &&
+                (e.userMessage.contains("already exists", ignoreCase = true) ||
+                    e.userMessage.contains("already_exists", ignoreCase = true))
+            if (!alreadyExists) throw e
+            mapHttpErrors(AppError.Provider.GITHUB) { api.branch(owner, repo, branch) }
         }
         return branch
     }

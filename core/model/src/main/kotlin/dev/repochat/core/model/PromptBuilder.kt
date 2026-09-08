@@ -113,6 +113,9 @@ object PromptBuilder {
 
     private const val FILE_CONTENT_MAX_CHARS = 80_000
 
+    // Substring markers (lowercased id) for model families that accept image
+    // input. Conservative: a miss means the image is described in text instead
+    // of being sent; a false positive would 400 the request on text models.
     private val VISION_MODEL_MARKERS = listOf(
         "llava",
         "vision",
@@ -120,8 +123,15 @@ object PromptBuilder {
         "moondream",
         "minicpm-v",
         "qwen2-vl",
+        "qwen2.5-vl",
+        "qwen3-vl",
         "qwen-vl",
         "gemma3", // gemma3 family accepts images on Ollama
+        "gpt-4o",
+        "pixtral",
+        "glm-4v",
+        "llama-3.2-11b",
+        "llama-3.2-90b",
     )
 
     /**

@@ -6,6 +6,7 @@ import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.HttpException
@@ -116,5 +117,58 @@ class ErrorMappingTest {
         val error = toAppError(AppError.Provider.GITHUB, httpExceptionBlankReason(422, body))
         assertTrue(error is AppError.Api)
         assertEquals("No commits between main and ai-chat/pv15q171", error.userMessage)
+    }
+
+    @Test
+    fun `402 maps to rate-limited-style payment verification message`() {
+        val error = toAppError(
+            AppError.Provider.LLM,
+            httpExceptionBlankReason(402, """{"error":{"message":"free_tier_requires_payment"}}"""),
+        )
+        assertTrue(error is AppError.RateLimited)
+        assertTrue(error.userMessage.contains("payment verification", ignoreCase = true))
+    }
+
+    @Test
+    fun `429 with retry-after includes a human readable wait hint`() {
+        val error = toAppError(
+            AppError.Provider.GITHUB,
+            httpExceptionWithRetryAfter(429, "30"),
+        )
+        assertTrue(error is AppError.RateLimited)
+        assertTrue(
+            "Expected a ~30s hint, got: ${error.userMessage}",
+            error.userMessage.contains("~30 seconds"),
+        )
+    }
+
+    @Test
+    fun `429 without retry-after has no wait hint`() {
+        val error = toAppError(AppError.Provider.GITHUB, httpException(429))
+        assertTrue(error is AppError.RateLimited)
+        assertFalse(error.userMessage.contains("Try again in ~"))
+    }
+
+    @Test
+    fun `llm 429 surfaces provider quota detail like free_limit_reached`() {
+        val body = """
+            {"error":{"message":"insufficient_quota: free_limit_reached - daily token cap hit","type":"quota"}}
+        """.trimIndent()
+        val error = toAppError(AppError.Provider.LLM, httpExceptionBlankReason(429, body))
+        assertTrue(error is AppError.RateLimited)
+        assertTrue(error.userMessage.contains("free_limit_reached"))
+    }
+
+    private fun httpExceptionWithRetryAfter(code: Int, retryAfter: String): HttpException {
+        val responseBody = "".toResponseBody("application/json".toMediaTypeOrNull())
+        val raw = okhttp3.Response.Builder()
+            .request(Request.Builder().url("https://example.test/").build())
+            .protocol(Protocol.HTTP_2)
+            .code(code)
+            .message("")
+            .addHeader("Retry-After", retryAfter)
+            .body(responseBody)
+            .build()
+        return HttpException(Response.error<Any>(responseBody, raw))
     }
 }

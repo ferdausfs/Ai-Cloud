@@ -22,10 +22,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -49,8 +49,19 @@ class AiTurnCoordinator @Inject constructor(
     private val _state = MutableStateFlow(AiTurnLiveState())
     val state: StateFlow<AiTurnLiveState> = _state.asStateFlow()
 
-    /** Gate the orchestrator waits on when a write proposal is shown (single-turn). */
-    private val approvalFlow = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    /**
+     * Gate the orchestrator waits on when a write proposal is shown (single-turn).
+     *
+     * A [MutableStateFlow] (not a SharedFlow with replay=0) so an Approve/Reject
+     * tap that lands *before* the orchestrator subscribes is never silently
+     * dropped — the orchestrator's `approval.first()` receives the current
+     * value immediately. Stale decisions from a previous turn are drained in
+     * [startTurn] so a leftover decision can never auto-approve the next turn.
+     */
+    private val approvalFlow = MutableStateFlow<Boolean?>(null)
+
+    /** Non-null decisions only — what the orchestrator subscribes to. */
+    private val approvalDecisions: Flow<Boolean> = approvalFlow.filterNotNull()
 
     private var turnJob: Job? = null
     private var lastUserInput: String? = null
@@ -78,6 +89,8 @@ class AiTurnCoordinator @Inject constructor(
 
         // General chat never runs the CI auto-fix loop (no repo tools).
         val autoFix = request.autoFixUntilCiGreen && !request.isGeneral
+        // Drain any stale decision left over from a previous turn.
+        approvalFlow.value = null
         _state.update {
             it.copy(
                 active = true,
@@ -118,7 +131,7 @@ class AiTurnCoordinator @Inject constructor(
         val events: Flow<TurnEvent> = if (autoFix) {
             autoFixLoop.run(request)
         } else {
-            turnRunner.runTurn(request, approvalFlow)
+            turnRunner.runTurn(request, approvalDecisions)
         }
 
         turnJob = scope.launch {
@@ -161,13 +174,14 @@ class AiTurnCoordinator @Inject constructor(
     fun approveChange() {
         if (!_state.value.approvalPending) return
         _state.update { it.copy(approvalPending = false, approving = true) }
-        scope.launch { approvalFlow.emit(true) }
+        // StateFlow: thread-safe, never dropped, visible to a later subscriber.
+        approvalFlow.value = true
     }
 
     fun rejectChange() {
         if (!_state.value.approvalPending) return
         _state.update { it.copy(approvalPending = false) }
-        scope.launch { approvalFlow.emit(false) }
+        approvalFlow.value = false
     }
 
     fun dismissError() = _state.update { it.copy(error = null) }

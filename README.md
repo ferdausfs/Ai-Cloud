@@ -1,31 +1,55 @@
 # RepoChat AI
 
-A native Android chat app where you talk to an AI pair programmer (Ollama Cloud)
-that reads and edits files in a GitHub repository you select — with **every
-commit landing on a safe working branch, never on `main`**, and a diff +
+A native Android chat app where you talk to an AI pair programmer that reads
+and edits files in a GitHub repository you select — with **every commit
+landing on a safe working branch, never on `main`**, and a diff +
 Approve/Reject gate before anything is written.
 
-## Highlights
+## Supported AI providers
 
-- **AI tool-calling loop** — the model answers with strict JSON
-  (`read_file` / `write_file` / `reply`). It can request files it needs; those
-  contents are fed back into the context until it writes or replies.
-- **Human-in-the-loop commits** — every proposed change is shown as a
-  color-coded line diff with **Approve & commit / Reject** before the GitHub
-  API is called.
-- **Never pushes to main** — each repository gets a dedicated working branch
-  (`ai-chat/<session-id>`), created from the default branch HEAD, visible as a
-  chip in the chat screen. A **Create pull request** action opens a PR into the
-  default branch; merging stays a manual step on GitHub.
-- **Secure credential storage** — API keys / GitHub PAT live in
-  `EncryptedSharedPreferences` (Android Keystore-backed AES-256), excluded from
-  backups. Chat history is persisted in Room per repository.
-- **Polished UI** — dark mode, intentional color/type system, shared-element
-  transitions between repo picker and chat, animated message bubbles, animated
-  typing indicator, empty/error states with retry affordances.
-- **Robust error handling** — typed errors (401 → Settings shortcut, 403/429 →
-  friendly rate-limit message, 409 → re-read guidance, network → retry),
-  truncated file trees for large repos, size-capped LLM context.
+| Provider | API | Model discovery | Notes |
+|----------|-----|-----------------|-------|
+| **Ollama Cloud** | bespoke `/api` (NDJSON) | live `GET /api/tags` | Original backend |
+| **OpenRouter** | OpenAI-compatible | live `GET /v1/models` | `:free` routes flagged FREE, other routes PAID |
+| **Groq / Cerebras / Together / Fireworks / Custom** | OpenAI-compatible | live `GET /v1/models` | Any OpenAI-shaped endpoint works via *Custom* |
+| **Experiential Labs** | OpenAI-compatible | live `GET /v1/models` | First-class preset; see below |
+
+The chat/coding agent is provider-agnostic: switching provider or model only
+changes the intelligence backend. Read files, diffs, approvals, working
+branches, PRs and CI auto-fix behave identically everywhere.
+
+## Experiential Labs setup
+
+1. Create an API key on the [Experiential Labs platform](https://platform.experientiallabs.ai)
+   (keys look like `xpl_…`).
+2. In the app: **Settings → AI Providers → + OpenAI-compatible**, choose the
+   **Experiential Labs** preset (endpoint `https://api.experientiallabs.ai/v1`
+   is locked to the official URL), paste the key, and **Load models**.
+3. **Test connection** performs a real authenticated `GET /v1/models` — it
+   validates your key without spending tokens on a chat completion.
+
+The model list is fetched live from the provider catalog. A small curated
+fallback list is used only when live listing is unavailable; the provider's
+catalog can change at any time and the app never assumes specific model ids
+keep existing.
+
+### Free, promotional and paid models
+
+The model picker labels every model honestly:
+
+- **FREE** — verified zero-cost route (OpenRouter `:free` ids).
+- **PROMO** — a promotional free tier the provider grants for a limited time
+  (currently e.g. `gpt-6-astra`, `claude-fable-5.1` on Experiential Labs).
+  **Free/promotional availability is determined by the provider and may
+  change.** The app never claims a model is permanently free.
+- **PAID** — shown only when the provider's own catalog semantics prove it
+  (OpenRouter non-`:free` routes bill at provider price).
+- **N/A** — pricing unavailable; the app does not invent pricing.
+
+Quota errors are explained, not swallowed: when a free-tier daily/hourly cap
+is reached you get the provider's own detail (e.g. `free_limit_reached`) plus
+any `Retry-After` hint; `402 verification_required` surfaces as "payment
+verification required on the provider's dashboard".
 
 ## Architecture
 
@@ -34,33 +58,61 @@ MVVM + Clean Architecture + Hilt, in four Gradle modules:
 ```
 app/          Compose UI (screens, navigation, theme) + ViewModels
 core/model/   Pure Kotlin domain model, JSON action parser, diff engine,
-              prompt builder, session ids — fully unit-tested
+              prompt builder, provider presets, pricing classifier — tested
 core/domain/  Use cases, repository contracts, the AI editing orchestrator
-              (tool loop + approval gate) — unit-tested with fakes
+              (tool loop + approval gate), AutoFixLoop — tested with fakes
 core/data/    Room, EncryptedSharedPreferences, Retrofit/OkHttp, GitHub and
-              Ollama API clients, Hilt DI module
+              LLM API clients, Hilt DI module
 ```
 
-All dependency versions live in `gradle/libs.versions.toml` (version catalog);
-nothing is hardcoded in build scripts.
+Provider integrations share one OpenAI-compatible client; provider-specific
+differences (request parameters, static headers, error semantics) live in the
+`ProviderPreset` table in `core/model` — adding OpenAI/Anthropic/Gemini or any
+OpenAI-shaped endpoint is a preset, not a rewrite. UI → ViewModel → UseCase →
+`LlmService` → provider implementation → API.
 
-## Stack
+## Highlights
 
-- Kotlin 2.0.21, Jetpack Compose (BOM 2025.01.00, Material 3), minSdk 24,
-  target/compile SDK 35
-- Room, EncryptedSharedPreferences (androidx.security-crypto)
-- Retrofit + OkHttp + kotlinx.serialization (coroutines)
-- Hilt (KSP), Navigation Compose, Gradle 8.11.1 / AGP 8.7.3
-- GitHub Actions CI builds a debug APK and runs unit tests on every push
+- **AI tool-calling loop** — the model answers with strict JSON
+  (`read_file` / `write_file` / `create_pull_request` / `check_ci_status` /
+  `reply`). Requested files are fed back into context until it writes or
+  replies.
+- **Human-in-the-loop commits** — every proposed change is shown as a
+  color-coded line diff with **Approve & commit / Reject** before the GitHub
+  API is called.
+- **Never pushes to main** — each repository gets a dedicated working branch
+  (`ai-chat/<session-id>`), created from the default branch HEAD, visible as a
+  chip in the chat screen. A **Create pull request** action opens a PR into the
+  default branch; merging stays a manual step on GitHub.
+- **Premium model picker** — live catalog with search, All/Free/Paid filters,
+  FREE/PROMO/PAID badges, provider grouping, retry, and an offline fallback:
+  the last successful catalog is cached and shown with an explicit
+  "Offline — showing previously loaded models" indicator when the network
+  fails.
+- **Connection testing that tests** — every provider's Test Connection makes a
+  real API request and maps 200/401/403/429/5xx/network-failure to precise,
+  human-readable messages.
+- **Secure credential storage** — API keys / GitHub PAT live in
+  `EncryptedSharedPreferences` (Android Keystore-backed AES-256), excluded
+  from backups. Keys are never logged, never embedded in build outputs, and
+  provider cards show only a masked fingerprint (`xpl_••••••••9F3A`).
+- **Robust error handling** — typed errors (401 → Settings, 402 → payment
+  verification guidance, 403/429 → rate-limit message with `Retry-After`
+  hint, 409 → re-read guidance, network → retry), truncated file trees for
+  large repos, size-capped LLM context.
 
 ## Getting started
 
 1. Open the project in Android Studio (Koala or newer).
-2. Create an [Ollama Cloud](https://ollama.com) API key and a
+2. Get at least one AI provider credential (an
+   [Ollama Cloud](https://ollama.com) key, an
+   [OpenRouter](https://openrouter.ai) key, an
+   [Experiential Labs](https://platform.experientiallabs.ai) key, or any
+   OpenAI-compatible endpoint) and a
    [GitHub personal access token](https://github.com/settings/tokens) with the
    **repo** scope.
-3. Run the app, open **Settings**, paste both, pick a model
-   (e.g. `gpt-oss:120b-cloud`) and use **Test connection** for each service.
+3. Run the app, open **Settings**, add each provider, paste keys, pick models,
+   and use **Test connection** per provider.
 4. **Browse repositories**, pick one, and chat. Approve the diff when the AI
    proposes a change; create a PR when you're done.
 
@@ -68,8 +120,8 @@ nothing is hardcoded in build scripts.
 
 1. User sends a message → session is ensured in Room.
 2. The working branch `ai-chat/<session-id>` is created from the default
-   branch HEAD if it doesn't exist (via `POST /git/refs`); otherwise it's
-   reused, so all edits accumulate in one reviewable branch.
+   branch HEAD if it doesn't exist; concurrent creation races resolve
+   gracefully (422 "already exists" is treated as success).
 3. The recursive file tree is fetched and formatted into a size-capped prompt
    together with recent chat history.
 4. The model responds with strict JSON; `read_file` actions pull file contents
@@ -82,45 +134,25 @@ nothing is hardcoded in build scripts.
 
 ## GitHub Actions CI & auto-merge
 
-`.github/workflows/android.yml` does two things:
+`.github/workflows/android.yml` on every push:
 
-1. **Build** — on every push it runs `:app:assembleDebug` plus the full unit
-   test suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
-   `:app:testDebugUnitTest`) and uploads the debug APK as an artifact.
-2. **Auto-merge into `main`** — once the working branch
-   (`arena/01a04eb6-ai-cloud`) is **green**, a second job automatically merges
-   it into `main` with a merge commit (`--no-ff`) and pushes. No manual push is
-   needed, and `main` can never receive a red commit because the merge job
-   only runs after the build job succeeds. Pushing to `main` does not
-   re-trigger the workflow (the push filter only includes the working branch).
+1. **Build** — `:app:lintDebug`, `:app:assembleDebug`, the full unit test
+   suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
+   `:app:testDebugUnitTest`), plus connected emulator tests. The build also
+   submits the Gradle dependency graph, so known CVEs surface as Dependabot
+   alerts; pull requests additionally run a Dependency Review gate.
+2. **Auto-merge into `main`** — only `ai-chat/*` working branches are merged,
+   and only after build + connected tests are green (`--no-ff` merge commit).
+   `main` can never receive a red commit.
 
-Note: the app itself still never writes to `main` — AI commits always land on
-`ai-chat/<session-id>` working branches. The CI auto-merge only moves the
-*application code* from the green working branch into `main`. If you ever
-enable branch protection on `main`, the auto-merge job will fail loudly; in
-that case comment out the job and merge via pull request instead.
-
-## Project layout
-
-```
-.github/workflows/android.yml   CI: assembleDebug + unit tests + APK artifact,
-                                then auto-merges the green working branch
-                                into main
-gradle/libs.versions.toml       Version catalog
-gradle/wrapper/                 Gradle wrapper (jar included)
-settings.gradle.kts             Module graph
-build.gradle.kts                Root build script
-app/                            Compose UI, navigation, theme, ViewModels
-core/model/                     Pure model + diff engine + parser (unit tests)
-core/domain/                    Use cases + AI editing orchestrator (unit tests)
-core/data/                      Room, secure prefs, Retrofit APIs, Hilt module
-```
+The app itself still never writes to `main` — AI commits always land on
+`ai-chat/<session-id>` working branches.
 
 ## Branch safety notes
 
 - The app **never** omits the `branch` field on content writes, so commits can
   never silently default to `main`.
-- File paths from the model are sanitized (no `..`, no `.git`).
+- File paths from the model are sanitized (no `..`, no `.git`, no traversal).
 - If a file changed upstream, GitHub returns 409 and the app asks you to simply
   resend the message so the file is re-read first.
 
@@ -128,24 +160,56 @@ core/data/                      Room, secure prefs, Retrofit APIs, Hilt module
 
 In-flight turns run inside `AiTurnCoordinator` (application scope) behind an
 `AiTurnService` foreground service (`dataSync`) so leaving the app (home /
-screen off) does not cancel the Ollama/GitHub network call. Results are still
-persisted in Room — reopen chat to see the completed reply/diff/PR.
+screen off) does not cancel the network call. Results are still persisted in
+Room — reopen chat to see the completed reply/diff/PR.
 
 Even with a foreground service, some OEMs (especially Xiaomi/MIUI, Vivo, Oppo)
 add a manual battery-optimization / Autostart whitelist. Settings has a one-line
-tip and a button that opens this app’s system details page
-(`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`) so you can set battery to
-“No restrictions”.
+tip and a button that opens this app's system details page so you can set
+battery to "No restrictions".
 
 ## Auto-fix until CI is green
 
-Chat has an opt-in checkbox **“Auto-fix until CI passes”**. When enabled, the
+Chat has an opt-in checkbox **"Auto-fix until CI passes"**. When enabled, the
 send path runs `AutoFixLoop` under the same foreground service:
 
 1. One AI turn (read/write) — writes are auto-approved so the loop can run unattended
-2. Poll GitHub Actions on the working branch (~15s backoff, up to ~12 minutes)
-3. On failure: fetch the failed job’s real log (tail ~8k chars), re-prompt the model, commit again
-4. Stop on green, or after 5 attempts with an honest summary + next-step question
+2. Poll GitHub Actions on the working branch (~15s exponential backoff, up to ~12 minutes)
+3. On failure: fetch the failed job's real log (tail ~8k chars), re-prompt the model, commit again
+4. Stop on green, or after the configured max attempts (default 5) with an honest summary
 
-Never claims success it didn’t achieve. Progress is written as chat bubbles and
-shown on the FGS notification (`Attempt 2/5 — CI failed, fixing…`).
+Never claims success it didn't achieve — CI is the source of truth. Progress
+is written as chat bubbles and shown on the FGS notification
+(`Attempt 2/5 — CI failed, fixing…`).
+
+## Troubleshooting
+
+- **"Your … API key was rejected"** — the key is invalid/expired; update it in
+  Settings and re-test.
+- **"LLM provider rate limit reached. Detail: …"** — free-tier quota exhausted
+  (e.g. daily/hourly cap). Wait for the reset, retry, or switch provider — the
+  router auto-falls back to the next configured provider on rate limits.
+- **"payment verification required"** — the provider gates this model behind
+  card verification; switch to a free/promotional model or complete
+  verification on the provider's dashboard.
+- **"Could not load models"** — check connectivity; the picker shows your last
+  successfully loaded catalog with an Offline indicator, and you can always
+  enter a model id manually.
+- **Turn stuck on "Approving…"** — should not happen anymore (fixed); if you
+  ever see it, tap Approve/Reject again or restart the app — history is safe
+  in Room.
+- **Background turn dies** — whitelist the app from battery optimization
+  (Settings → battery tip button).
+
+## Development
+
+```bash
+./gradlew test          # all unit tests
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug
+```
+
+Unit tests cover the action parser, path sanitization, prompt builder, diff
+engine, provider presets, pricing classification, request shaping (vision
+parts, capability flags), error mapping (401/402/429/Retry-After), the
+provider router fallback and the AutoFixLoop.
