@@ -7,15 +7,20 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// Release signing identity v2 — a fresh PKCS12 keystore generated 2026-09-08
+// (alias ai-cloud-release-v2). CI decodes the RELEASE_KEYSTORE_BASE64_V2 secret
+// into $RUNNER_TEMP and exposes the path via RELEASE_STORE_FILE; the other
+// three come straight from the _V2 secrets. The pre-v2 secret names are
+// intentionally never read by this build — the old identity is retired.
 val releaseSigning = listOf(
     "RELEASE_STORE_FILE",
-    "RELEASE_STORE_PASSWORD",
-    "RELEASE_KEY_ALIAS",
-    "RELEASE_KEY_PASSWORD",
+    "RELEASE_STORE_PASSWORD_V2",
+    "RELEASE_KEY_ALIAS_V2",
+    "RELEASE_KEY_PASSWORD_V2",
 ).associateWith { providers.environmentVariable(it).orNull?.takeIf(String::isNotBlank) }
 val hasReleaseSigning = releaseSigning.values.all { it != null }
 require(releaseSigning.values.all { it == null } || hasReleaseSigning) {
-    "Release signing is incomplete. Set all four RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD variables, or leave all unset for an unsigned APK."
+    "Release signing is incomplete. Set all four RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD_V2, RELEASE_KEY_ALIAS_V2 and RELEASE_KEY_PASSWORD_V2 variables, or leave all unset for an unsigned APK."
 }
 
 android {
@@ -36,9 +41,10 @@ android {
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = file(requireNotNull(releaseSigning["RELEASE_STORE_FILE"]))
-                storePassword = releaseSigning["RELEASE_STORE_PASSWORD"]
-                keyAlias = releaseSigning["RELEASE_KEY_ALIAS"]
-                keyPassword = releaseSigning["RELEASE_KEY_PASSWORD"]
+                storeType = "pkcs12"
+                storePassword = releaseSigning["RELEASE_STORE_PASSWORD_V2"]
+                keyAlias = releaseSigning["RELEASE_KEY_ALIAS_V2"]
+                keyPassword = releaseSigning["RELEASE_KEY_PASSWORD_V2"]
             }
         }
     }
@@ -48,6 +54,8 @@ android {
             isDebuggable = false
             isMinifyEnabled = false
             if (hasReleaseSigning) {
+                // v2 PKCS12 identity — never the debug keystore, never the
+                // retired pre-v2 key.
                 signingConfig = signingConfigs.getByName("release")
             }
             proguardFiles(

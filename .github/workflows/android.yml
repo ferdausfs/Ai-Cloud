@@ -38,31 +38,36 @@ jobs:
       - name: Assemble debug APK
         run: bash ./gradlew :app:assembleDebug --stacktrace
 
-      # Never expose release signing secrets to pull request builds.
-      # Without secrets, CI still validates and uploads an unsigned release APK.
+      # Release signing uses the v2 identity (RELEASE_*_V2 secrets). Pull
+      # request builds never receive secrets and validate an unsigned APK;
+      # push builds require the v2 secrets and fail hard without them.
       - name: Assemble release APK
         env:
-          RELEASE_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64 || '' }}
-          RELEASE_STORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD || '' }}
-          RELEASE_KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS || '' }}
-          RELEASE_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_PASSWORD || '' }}
+          RELEASE_KEYSTORE_BASE64_V2: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64_V2 || '' }}
+          RELEASE_STORE_PASSWORD_V2: ${{ github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD_V2 || '' }}
+          RELEASE_KEY_ALIAS_V2: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS_V2 || '' }}
+          RELEASE_KEY_PASSWORD_V2: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_PASSWORD_V2 || '' }}
         shell: bash
         run: |
           set -euo pipefail
-          keystore="$RUNNER_TEMP/release-signing.jks"
+          keystore="$RUNNER_TEMP/ai-cloud-release-v2.p12"
           trap 'rm -f "$keystore"' EXIT
-          if [[ -n "$RELEASE_KEYSTORE_BASE64" || -n "$RELEASE_STORE_PASSWORD" || -n "$RELEASE_KEY_ALIAS" || -n "$RELEASE_KEY_PASSWORD" ]]; then
-            if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
-              echo "::error::Release signing is incomplete. Configure all four RELEASE_* signing secrets."
-              exit 1
-            fi
-            umask 077
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
-            export RELEASE_STORE_FILE="$keystore"
-            echo "Release APK: signed with the configured release key." >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "::warning::Pull request build: signing secrets are not exposed. Building an unsigned release APK for validation only."
+            echo "Release APK: unsigned (PR validation build)." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::Signing secrets are unavailable. Building an unsigned release APK; it must be signed before installation."
-            echo "Release APK: unsigned; signing is required before installation." >> "$GITHUB_STEP_SUMMARY"
+            missing=0
+            for v in RELEASE_KEYSTORE_BASE64_V2 RELEASE_STORE_PASSWORD_V2 RELEASE_KEY_ALIAS_V2 RELEASE_KEY_PASSWORD_V2; do
+              if [[ -z "${!v:-}" ]]; then
+                echo "::error::Required signing secret '$v' is missing. Refusing to produce an unsigned release APK."
+                missing=1
+              fi
+            done
+            if [[ "$missing" != "0" ]]; then exit 1; fi
+            umask 077
+            printf '%s' "$RELEASE_KEYSTORE_BASE64_V2" | base64 --decode > "$keystore"
+            export RELEASE_STORE_FILE="$keystore"
+            echo "Release APK: signed with the v2 release key." >> "$GITHUB_STEP_SUMMARY"
           fi
           bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
