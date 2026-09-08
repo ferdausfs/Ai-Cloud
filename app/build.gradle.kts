@@ -31,7 +31,9 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
+        // Bumped 1 -> 2 for the first v2-identity release so that installs
+        // over any previously built APK upgrade in place via `adb install -r`.
+        versionCode = 2
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
