@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_home">Home</string>
+    <string name="workspace_eyebrow">YOUR WORKSPACE</string>
+    <string name="workspace_title">Let’s build something.</string>
+    <string name="workspace_subtitle">Your repositories. Your AI. One workflow.</string>
+    <string name="workspace_recent_repo">Recent repository</string>
+    <string name="workspace_choose_repo">Connect your next idea to code</string>
+    <string name="workspace_repo_description">Open a repository to browse files and work with AI.</string>
+    <string name="workspace_start_coding">Start coding with AI</string>
+    <string name="workspace_browse_files">Browse files</string>
+    <string name="workspace_activity">Recent conversations</string>
+    <string name="workspace_view_all">View all</string>
+    <string name="workspace_no_chats">No conversations yet. Start a chat or choose a repository to begin.</string>
+    <string name="workspace_no_matches">No matching conversations.</string>
+    <string name="workspace_branch_hint">Repository edits stay on a working branch.</string>
+</resources>
