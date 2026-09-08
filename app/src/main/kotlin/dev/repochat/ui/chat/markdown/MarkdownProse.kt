@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -80,12 +81,7 @@ fun MarkdownProse(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
-                            onUrl = { url ->
-                                try {
-                                    uriHandler.openUri(url)
-                                } catch (_: Exception) {
-                                }
-                            },
+                            onUrl = { url -> openUrlSafely(uriHandler, url) },
                         )
                     }
                     is ProseBlock.Numbered -> {
@@ -102,12 +98,7 @@ fun MarkdownProse(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
-                            onUrl = { url ->
-                                try {
-                                    uriHandler.openUri(url)
-                                } catch (_: Exception) {
-                                }
-                            },
+                            onUrl = { url -> openUrlSafely(uriHandler, url) },
                         )
                     }
                     is ProseBlock.Paragraph -> {
@@ -124,16 +115,27 @@ fun MarkdownProse(
                             text = annotated,
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 2.dp),
-                            onUrl = { url ->
-                                try {
-                                    uriHandler.openUri(url)
-                                } catch (_: Exception) {
-                                }
-                            },
+                            onUrl = { url -> openUrlSafely(uriHandler, url) },
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Model output can contain arbitrary link targets. Only http/https are ever
+ * opened — other schemes (intent:, file:, javascript:, …) are dropped so a
+ * poisoned reply cannot launch non-web handlers (AUD-011).
+ */
+private fun openUrlSafely(uriHandler: UriHandler, url: String) {
+    val normalized = url.trim()
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+        try {
+            uriHandler.openUri(normalized)
+        } catch (_: Exception) {
+            // No handler — ignore, same as before.
         }
     }
 }
