@@ -12,7 +12,9 @@ import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ConnectionType
 import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
+import dev.repochat.core.model.KNOWN_EXPERIENTIAL_MODELS
 import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
+import dev.repochat.core.model.ModelPricing
 import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.matchOpenAiPreset
 import java.util.UUID
@@ -32,12 +34,14 @@ data class TestState(
     val detail: String = "",
 )
 
-enum class ModelListStatus { Idle, Loading, Ready, Failed }
+enum class ModelListStatus { Idle, Loading, Ready, Failed, OfflineCache }
 
 data class ModelListState(
     val status: ModelListStatus = ModelListStatus.Idle,
     val models: List<String> = emptyList(),
     val detail: String = "",
+    /** True when [models] came from the offline cache, not the live API. */
+    val fromCache: Boolean = false,
 )
 
 data class SettingsUiState(
@@ -64,12 +68,14 @@ class SettingsViewModel @Inject constructor(
     private val saveSettings: SaveSettingsUseCase,
     private val llm: LlmService,
     private val testGithub: TestGithubUseCase,
+    private val catalogCache: ModelCatalogCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
-    private var loadModelsJob: Job? = null
+    /** One job per connection — loading models for A must not cancel B. */
+    private val loadModelsJobs = mutableMapOf<String, Job>()
 
     init {
         viewModelScope.launch {
@@ -244,8 +250,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun loadModels(connectionId: String, debounceMs: Long = 0) {
-        loadModelsJob?.cancel()
-        loadModelsJob = viewModelScope.launch {
+        // Cancel only THIS connection's previous load (parallel editors stay intact).
+        loadModelsJobs.remove(connectionId)?.cancel()
+        loadModelsJobs[connectionId] = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
             val conn = _uiState.value.connections.firstOrNull { it.id == connectionId } ?: return@launch
             val curated = when (conn.type) {
@@ -253,6 +260,10 @@ class SettingsViewModel @Inject constructor(
                 ConnectionType.OPENAI_COMPATIBLE ->
                     suggestedModelsFor(matchOpenAiPreset(conn.baseUrl).label)
                 else -> emptyList()
+            }
+            val providerLabel = when (conn.type) {
+                ConnectionType.OPENAI_COMPATIBLE -> matchOpenAiPreset(conn.baseUrl).label
+                else -> conn.label
             }
             _uiState.update {
                 val prev = it.modelLists[connectionId] ?: ModelListState()
@@ -262,19 +273,37 @@ class SettingsViewModel @Inject constructor(
                         ),
                 )
             }
-            val live = try {
-                llm.listModels(conn)
-            } catch (_: Exception) {
-                emptyList()
+            val live: List<String>?
+            val liveError: String?
+            try {
+                live = llm.listModels(conn)
+                liveError = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                live = null
+                liveError = e.message?.takeIf { it.isNotBlank() } ?: "Could not load models"
             }
-            val models = sortModelsFreeFirst(
+
+            if (live != null) {
+                catalogCache.put(connectionId, live)
+            }
+            val cached = live?.takeIf { it.isNotEmpty() } ?: run {
+                catalogCache.get(connectionId)?.let { entry ->
+                    if (entry.models.isNotEmpty()) entry.models else null
+                }
+            }
+            val fromCache = live.isNullOrEmpty() && cached != null
+            val models = ModelPricing.sortFreeFirst(
                 when {
-                    live.isNotEmpty() -> live
+                    !live.isNullOrEmpty() -> live
+                    fromCache -> cached.orEmpty()
                     curated.isNotEmpty() -> curated
                     else -> emptyList()
                 },
+                providerLabel,
             )
-            val failed = live.isEmpty() && curated.isEmpty() &&
+            val failed = live == null && curated.isEmpty() && !fromCache &&
                 conn.type == ConnectionType.OPENAI_COMPATIBLE
             // Default free-only when any :free id is present (or OpenRouter preset).
             val freeOnlyDefault = _uiState.value.freeOnlyByConnection[connectionId]
@@ -283,13 +312,18 @@ class SettingsViewModel @Inject constructor(
                 it.copy(
                     modelLists = it.modelLists + (
                         connectionId to ModelListState(
-                            status = if (failed) ModelListStatus.Failed else ModelListStatus.Ready,
-                            models = models,
-                            detail = if (failed) {
-                                "Could not load models - enter the model name manually"
-                            } else {
-                                ""
+                            status = when {
+                                failed -> ModelListStatus.Failed
+                                fromCache -> ModelListStatus.OfflineCache
+                                else -> ModelListStatus.Ready
                             },
+                            models = models,
+                            detail = when {
+                                failed -> liveError ?: "Could not load models — enter the model name manually"
+                                fromCache -> "Offline — showing previously loaded models"
+                                else -> ""
+                            },
+                            fromCache = fromCache,
                         )
                         ),
                     freeOnlyByConnection = it.freeOnlyByConnection + (connectionId to freeOnlyDefault),
@@ -308,6 +342,7 @@ class SettingsViewModel @Inject constructor(
                     updateConnection(conn.copy(modelName = preferred))
                 }
             }
+            loadModelsJobs.remove(connectionId)
         }
     }
 
@@ -321,6 +356,8 @@ class SettingsViewModel @Inject constructor(
                 customModelIds = state.customModelIds - id,
             )
         }
+        loadModelsJobs.remove(id)?.cancel()
+        catalogCache.remove(id)
         viewModelScope.launch { persist() }
     }
 
@@ -415,19 +452,29 @@ class SettingsViewModel @Inject constructor(
         fun isFreeModelId(id: String): Boolean =
             id.trim().lowercase().endsWith(":free")
 
-        /** Free models first (stable alpha within each group). */
-        fun sortModelsFreeFirst(models: List<String>): List<String> {
-            val free = models.filter { isFreeModelId(it) }.sorted()
-            val paid = models.filterNot { isFreeModelId(it) }.sorted()
-            return free + paid
+        /**
+         * Masked, log-safe representation for provider cards, e.g.
+         * `xpl_••••••••9F3A`. Only ever shows the first 4 and last 4 chars.
+         */
+        fun maskKey(key: String): String {
+            val trimmed = key.trim()
+            if (trimmed.isEmpty()) return "Not set"
+            if (trimmed.length <= 8) return "••••••••"
+            val prefix = trimmed.take(4)
+            val suffix = trimmed.takeLast(4)
+            return "$prefix\u2022••••••••$suffix"
         }
 
         fun defaultFreeOnlyForConnection(conn: ServiceConnection): Boolean {
             if (conn.type != ConnectionType.OPENAI_COMPATIBLE) return false
-            return matchOpenAiPreset(conn.baseUrl).label == "OpenRouter"
+            return matchOpenAiPreset(conn.baseUrl).label == ModelPricing.OPENROUTER_LABEL
         }
 
-        /** Curated starter models per known provider (live list can replace later). */
+        /**
+         * Curated starter models per known provider — fallback ONLY, used when
+         * live listing is unavailable. Never a claim that these ids are
+         * permanent; the live catalog always wins.
+         */
         fun suggestedModelsFor(providerLabel: String): List<String> = when (providerLabel) {
             "Groq" -> listOf(
                 "llama-3.3-70b-versatile",
@@ -440,12 +487,13 @@ class SettingsViewModel @Inject constructor(
                 "llama3.1-8b",
                 "gpt-oss-120b",
             )
-            "OpenRouter" -> listOf(
+            ModelPricing.OPENROUTER_LABEL -> listOf(
                 "meta-llama/llama-3.1-8b-instruct:free",
                 "google/gemma-2-9b-it:free",
                 "qwen/qwen-2.5-7b-instruct:free",
                 "meta-llama/llama-3.3-70b-instruct:free",
             )
+            ModelPricing.EXPERIENTIAL_LABEL -> KNOWN_EXPERIENTIAL_MODELS
             "Together.ai" -> listOf(
                 "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
                 "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
