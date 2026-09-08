@@ -313,6 +313,26 @@ class AiEditOrchestratorTest {
     }
 
     @Test
+    fun `check_ci_status ignores model branch override and uses the working branch`() = runTest {
+        // Regression (AUD-010): a model (or injected content) could request
+        // CI status for an arbitrary branch such as `main`; the orchestrator
+        // must only ever report on the session's own working branch.
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"check_ci_status","branch":"main"}""",
+                    """{"action":"reply","message":"checked"}""",
+                ),
+            ),
+        )
+        val github = FakeGithubService()
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertEquals("ai-chat/testsess1", github.lastCiBranch)
+    }
+
+    @Test
     fun `general mode is plain chat without tools or branch`() = runTest {
         val ollama = FakeLlmService(ArrayDeque(listOf("Sure — use a sealed class for the states.")))
         val github = FakeGithubService()

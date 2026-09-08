@@ -81,8 +81,8 @@ class AiTurnCoordinator @Inject constructor(
     /**
      * Starts a turn. Returns false (and does nothing) when another turn is
      * already running — including one in a *different* conversation (audit
-     * BUG-101: callers must surface this to the user, never silently drop the
-     * message). Spawns [AiTurnService] for the duration of the work so
+     * BUG-101 / AUD-002: callers must surface this to the user, never silently
+     * drop the message). Spawns [AiTurnService] for the duration of the work so
      * backgrounding the app does not kill the call. When
      * [TurnRequest.autoFixUntilCiGreen] is true, runs [AutoFixLoop] instead of
      * a single turn so CI can be polled for several minutes under the FGS.
@@ -153,7 +153,8 @@ class AiTurnCoordinator @Inject constructor(
                     handleEvent(event, autoFix = autoFix)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // Cancellation is user-initiated (cancelTurn) — not an error.
+                // Explicit cancel (Stop button / cancelTurn) or scope teardown
+                // is not an error — never surface it as "Something went wrong".
                 throw e
             } catch (e: Exception) {
                 _state.update {
@@ -192,8 +193,9 @@ class AiTurnCoordinator @Inject constructor(
      * Cancels the in-flight turn (audit BUG-201). Refused while a commit is
      * mid-flight ([AiTurnLiveState.approving]) so Room status can never
      * disagree with what actually landed on GitHub. Any PENDING write row is
-     * marked REJECTED, an honest "stopped by user" note is appended, and the
-     * foreground service is stopped.
+     * marked REJECTED, an honest "stopped by user" note is appended, the
+     * auto-fix attempt counter is reset, and the foreground service is stopped.
+     * Safe to call any time — including when no turn is running (no-op).
      */
     fun cancelTurn() {
         val st = _state.value
@@ -219,6 +221,7 @@ class AiTurnCoordinator @Inject constructor(
                 approvalPending = false,
                 approving = false,
                 autoFixActive = false,
+                autoFixAttempt = 0,
                 liveChange = null,
                 pendingWriteMessageId = null,
                 pendingPr = null,

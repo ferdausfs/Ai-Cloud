@@ -200,6 +200,27 @@ class ChatViewModel @Inject constructor(
             val boundKey = session.repoKey
             _uiState.update { it.copy(session = session) }
 
+            // Resolve proposals left PENDING by a process death / crash
+            // (AUD-003): with no live turn for this conversation the approval
+            // gate can never fire again, so the card would be stuck on
+            // "Pending review" forever. Be honest about the uncertainty —
+            // an approve-tap that died mid-flight may still have landed.
+            val liveForThisRepo = turnCoordinator.state.value.let {
+                it.active && it.repoKey == boundKey
+            }
+            if (!liveForThisRepo) {
+                val resolved = chatRepository.rejectStalePendingWrites(boundKey, session.sessionId)
+                if (resolved > 0) {
+                    chatRepository.appendAiText(
+                        boundKey,
+                        session.sessionId,
+                        "Closed $resolved proposal(s) left pending by a restart or error. " +
+                            "If you had just approved one, check the working branch — " +
+                            "that commit may still have landed.",
+                    )
+                }
+            }
+
             chatRepository.session(boundKey)
                 .filterNotNull()
                 .flatMapLatest { s ->
@@ -284,8 +305,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun cancelTurn() = turnCoordinator.cancelTurn()
-
     /** Shown once when a send is blocked by a foreign in-flight turn. */
     fun notifyTurnBusyElsewhere() {
         val live = turnCoordinator.state.value
@@ -314,8 +333,8 @@ class ChatViewModel @Inject constructor(
         val state = _uiState.value
         if (state.typing || state.approvalPending || state.approving) return false
 
-        // BUG-101 guard: one in-flight turn app-wide. A foreign busy turn must
-        // block BEFORE the message is persisted, and the user must be told.
+        // BUG-101 / AUD-002 guard: one in-flight turn app-wide. A foreign busy
+        // turn must block BEFORE the message is persisted, and the user told.
         if (state.turnBusyElsewhere) {
             notifyTurnBusyElsewhere()
             return false
@@ -386,6 +405,8 @@ class ChatViewModel @Inject constructor(
     fun approveChange() = turnCoordinator.approveChange()
 
     fun rejectChange() = turnCoordinator.rejectChange()
+
+    fun cancelTurn() = turnCoordinator.cancelTurn()
 
     fun createPullRequestNow() {
         val session = _uiState.value.session ?: return

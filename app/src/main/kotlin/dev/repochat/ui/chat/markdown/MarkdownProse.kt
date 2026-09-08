@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -81,6 +82,8 @@ fun MarkdownProse(
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
                             onUrl = { url ->
+                                // AUD-011/BUG-204: only http(s) with a host may
+                                // reach the platform URI handler (SafeUrl.kt).
                                 if (isSafeBrowseUrl(url)) {
                                     try {
                                         uriHandler.openUri(url)

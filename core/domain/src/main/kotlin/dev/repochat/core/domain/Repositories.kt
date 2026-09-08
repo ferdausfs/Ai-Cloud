@@ -47,6 +47,14 @@ interface ChatRepository {
     suspend fun markWrite(id: Long, status: MessageStatus, newSha: String?)
 
     suspend fun clearMessages(repoKey: String, sessionId: String)
+
+    /**
+     * Resolves WRITE_FILE rows still [MessageStatus.PENDING] for a conversation
+     * with **no live turn** (process death between approval and commit). The
+     * approval gate can never fire again for them, so they are moved to
+     * [MessageStatus.REJECTED]. Returns the number of rows resolved.
+     */
+    suspend fun rejectStalePendingWrites(repoKey: String, sessionId: String): Int
 }
 
 /** The repository the user is currently chatting with. */

@@ -43,6 +43,8 @@
     <string name="chat_input_hint">Ask me to edit this repo…</string>
     <string name="chat_input_approval_hint">Approve or reject the proposed change…</string>
     <string name="chat_send">Send message</string>
+    <string name="chat_stop">Stop</string>
+    <string name="chat_turn_in_progress">Another AI reply is still in progress. Stop it from that chat, or wait for it to finish.</string>
     <string name="chat_attach">Attach file</string>
     <string name="chat_attach_remove">Remove attachment</string>
     <string name="chat_attach_failed">Couldn\'t read that file. Try a different one.</string>
@@ -108,7 +110,6 @@
     <string name="turn_step_auto_ci_failed">Attempt %1$d/%2$d — CI failed, fixing…</string>
     <string name="turn_step_pr_approval">Waiting for your decision on the pull request…</string>
     <string name="turn_cancelled_note">Stopped by user — no further actions were taken.</string>
-    <string name="chat_stop">Stop</string>
     <string name="chat_turn_busy">Another AI turn is already running (%1$s). Wait for it to finish or stop it, then send again.</string>
     <string name="chat_pr_proposal_title">Proposed pull request</string>
     <string name="chat_pr_proposal_body">The assistant wants to open this pull request from your working branch into %1$s. Review it before it is created.</string>

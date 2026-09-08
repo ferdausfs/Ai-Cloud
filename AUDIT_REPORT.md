@@ -472,3 +472,62 @@ All executed on the audit sandbox after the final fix batch (JDK 17, Android SDK
 - ✅ CI green path with auto-merge + release APK artifact is reproducible.
 - ⚠️ Conditions: (1) add a real release keystore before distributing builds (debug-key fallback is explicitly labeled); (2) keep human approval for every write — do not widen AutoFixLoop's auto-approve scope; (3) treat COST-208 (token metering) as the next must-have before any team-wide rollout; (4) rotate any PAT that has been shared in plaintext (including the one used to deliver this audit — see §5 note).
 
+
+---
+
+## 20. Second parallel fix line: `ai-chat/audit-prod-002` (merged findings)
+
+During the audit window a **second fix line** (`ai-chat/audit-prod-002`, green CI on its own branch) landed additional, complementary findings to the register in §7–§10. Both lines implemented overlapping fixes (busy-conflict, Stop control, URL allowlist, GitHub timeouts) with different mechanisms; §21 records which implementation was kept per conflict. Findings unique to the 002 line:
+
+| ID | Severity | Finding | Fix (commit on the 002 line) | Regression test |
+|---|---|---|---|---|
+| AUD-001 | P1 | AutoFixLoop matched CI runs by branch + status only — a **green run for an older commit** could be reported as success for the loop's own commit | `e50cd99` attribute CI runs to the exact commit via `head_sha` | `loop_ignoresStaleRuns_whenHeadShaAvailable`, `loop_waitsForMatchingHeadSha_thenPasses` |
+| AUD-003 | P2 | Stale approval proposals could resolve a *future* gate when a turn ended without a decision | `29ab8f9` (proposal resolution hardened) | compile + existing fake-based domain tests |
+| AUD-006 | P2 | Repo file content and CI logs flowed into the prompt without explicit untrusted-content boundaries; model could be steered by injected instructions in file text | `031cf3f` untrusted-content delimiters + data rule | `PromptBuilderTest.model_outputs_are_wrapped_in_untrusted_delimiters` |
+| AUD-007 | P2 | Path sanitization existed only at the parser layer — no defense-in-depth re-validation at the repository boundary | `0ca5c92` path re-validation in `GithubRepositoryImpl` | `GithubPathGuardTest` (6 tests: traversal, `.git` internals, normalization, unicode, blank/oversized, typed error) |
+| AUD-008 | P2 | AutoFixLoop retried **non-retryable** errors (e.g. invalid API key) for all attempts — burned 5 attempts and 12+ minutes on a guaranteed failure | `1a45c74` fail fast on non-retryable errors | `loop_failsFast_onUnauthorized` |
+| AUD-010 | P2 | `check_ci_status` tool could be steered to report a **different branch's** CI, faking "green" | `031cf3f` CI branch lock (session's own branch only) | `AiEditOrchestratorTest.check_ci_status ignores model branch override…` |
+| AUD-012 | P3 | User input was lost when an attachment failed to load | `0036e23` input restore on attachment failure | UI-level, compile-verified |
+| AUD-013 | P3 | `notify-failure` with `if: failure()` + `needs:` could be suppressed when a `needs` job was skipped (non-PR runs) | `8c7d29c` explicit per-job result gating | CI behavior |
+| AUD-014 | P1 (CI-blocking) | Workflow referenced a **nonexistent action** `reactivecircus1000/android-emulator-runner` — every run on `main` failed at "Set up job" after PR #3 merged the typo | `8c7d29c` canonical `reactivecircus/android-emulator-runner@v2` | CI green on the 002 branch (run 34209613387) |
+
+**AUD-014 is the direct cause of the red `main` after PR #3** and was the trigger for the reconciliation merge below.
+
+## 21. Reconciliation merge (branch `ai-chat/reconcile-003`)
+
+`origin/main` (PR #3, audit-p0p1 line) and `ai-chat/audit-prod-002` diverged from `427055e` with two independent implementations of the same audit findings. The reconciliation merge (`merge: reconcile both audit fix lines`) resolved 9 conflicted files with the following evidence-based decisions:
+
+| File | Conflict | Decision (and why) |
+|---|---|---|
+| `AiTurnCoordinator.startTurn` | TurnGate (domain gate) vs local `turnJob` check | **Kept TurnGate** — unit-tested, guards the cross-conversation case (the actual BUG-101); the 002 variant only guarded the local job |
+| `AiTurnCoordinator.cancelTurn` | thorough (REJECTED marking, honest note, commit-in-flight refusal) vs minimal | **Kept thorough body** + folded in 002's `autoFixAttempt = 0` reset |
+| `ChatViewModel` guards | TurnGate + typed `AppError.TurnBusy` vs snackbar | **Kept TurnGate path** — blocks *before* persist, typed error, input preserved (002's variant would not compile against the merged Boolean signature) |
+| `MarkdownProse` links | `SafeUrl.isSafeBrowseUrl` (URI-parsed, host-checked, tested) vs prefix check | **Kept `SafeUrl`** — strictly stronger validation (length cap, host check), has dedicated unit tests |
+| `DataModule` GitHub client | 120s vs 60s read timeout | **Kept 120s** — documented rationale: 302-redirected streamed job logs |
+| `ChatScreen` BottomBar | PR approval card vs Stop button | **Kept both** — they compose (approval gate + cancellation are complementary agent-safety controls) |
+| `.github/workflows/android.yml` | tags trigger + release job vs typo fix + notify gating | **Union** — canonical emulator action + `v*` tag trigger + `release-on-tag` job + explicit-result notify-failure (also watching the release job) |
+| `AutoFixLoopTest` | 002's AUD-001/008 tests vs main's SEC-207 test | **Union — all four regression tests kept** (total 10 tests in the class) |
+| `README.md` / `AUDIT_REPORT.md` | different doc sections | **Union** — release/signing + privacy + auto-fix safety + audit sections all kept |
+
+Auto-merge artifacts fixed in the follow-up commit: duplicate `chat_stop` string resource (both lines added it), duplicate `ChatViewModel.cancelTurn()`, missing `AppError` import in the merged test file, and two pre-existing AutoFixLoop tests updated for the head_sha-attribution semantics (workflow runs must now carry `headSha`).
+
+## 22. Final validation after reconciliation (Phase 9, re-run)
+
+Executed on the audit sandbox (Temurin JDK 17.0.20, Android SDK platform 35 / build-tools 35.0.0) on the merged tree:
+
+| Command | Result |
+|---|---|
+| `compileDebugKotlin` + all 4 modules' compile tasks | **BUILD SUCCESSFUL** |
+| `:core:model:test` | **52 pass** (includes CiSensitivePathsTest + PromptBuilder untrusted-delimiter tests) |
+| `:core:domain:test` | **29 pass** (TurnGateTest, PR gate, CI-path guard, head_sha attribution ×2, fail-fast) |
+| `:core:data:testDebugUnitTest` | **33 pass** (incl. `GithubPathGuardTest` ×6) |
+| `:app:testDebugUnitTest` | **14 pass** (incl. `SafeUrlTest`) |
+| **Total** | **128/128 pass — 0 failures, 0 errors** (77 baseline → 117 after line 1 → 128 after union) |
+| `:app:lintDebug` | **BUILD SUCCESSFUL** |
+| `:app:assembleDebug` | **BUILD SUCCESSFUL** (fresh `app-debug.apk`, 19.6 MB) |
+| `:app:assembleRelease` | **BUILD SUCCESSFUL** (fresh `app-release-unsigned.apk`, 13.0 MB — unsigned locally as documented; CI signs via `RELEASE_*` secrets or the clearly-labeled debug-key fallback in the tag-release job) |
+| Secret scan of full diff vs `main` (PAT/token/key patterns) | **clean** |
+
+CI proof: branch `ai-chat/audit-prod-002` run `34209613387` → **green** (build + lint + unit tests + connected emulator tests; artifacts: `app-release-apk` 12.4 MB, `app-debug-apk` 19.0 MB, test reports, lint results). The reconciliation branch is pushed for the same pipeline and merged to `main` after green (recorded in §5/§19.3 style above).
+
+**Verdict (unchanged, strengthened):** *Conditionally ready* — same four conditions as §19.5. The 002 line's additions (head_sha attribution, fail-fast, boundary re-validation, untrusted-content delimiters, branch-locked CI checks) close the remaining P1/P2 agent-safety gaps; both lines' regression suites (128 tests) now guard the combined implementation.
