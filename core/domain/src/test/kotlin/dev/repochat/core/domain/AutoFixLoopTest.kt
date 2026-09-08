@@ -1,5 +1,6 @@
 package dev.repochat.core.domain
 
+import dev.repochat.core.model.AppError
 import dev.repochat.core.model.AutoFixEvent
 import dev.repochat.core.model.GitFile
 import dev.repochat.core.model.TurnEvent
@@ -194,6 +195,34 @@ class AutoFixLoopTest {
             "must not claim success: $progress",
             progress.none { it is AutoFixEvent.CiPassed },
         )
+    }
+
+    @Test
+    fun `loop_failsFast_onUnauthorized`() = runTest {
+        // Regression (AUD-008): an invalid API key can never succeed on
+        // retry — the loop must stop after attempt 1 and report the exact
+        // reason instead of burning the remaining attempts.
+        val ollama = FakeLlmService(
+            failure = AppError.Unauthorized(AppError.Provider.OLLAMA, "Your API key was rejected."),
+        )
+        val github = FakeGithubService().apply {
+            files["a.kt"] = GitFile("a.kt", "old", "sha", 1, false)
+        }
+        val chat = FakeChatRepository()
+        chat.ensureSession("acme", "demo", "main")
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val loop = testLoop(orchestrator, github, chat)
+
+        val events = loop.run(request("fix", max = 5), maxAttempts = 5).toList()
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+
+        val gaveUp = progress.filterIsInstance<AutoFixEvent.GaveUp>().single()
+        assertEquals("must stop after the first attempt", 1, gaveUp.attemptsMade)
+        assertTrue(
+            "must report the exact reason: ${gaveUp.history}",
+            gaveUp.history.any { it.contains("key was rejected") },
+        )
+        assertTrue(progress.none { it is AutoFixEvent.CiPassed })
     }
 
     @Test

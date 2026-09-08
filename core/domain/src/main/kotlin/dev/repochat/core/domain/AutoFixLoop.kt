@@ -145,6 +145,15 @@ class AutoFixLoop @Inject constructor(
 
             val err = turnError
             if (err != null) {
+                // Credentials/config problems can never succeed on retry —
+                // burning the remaining attempts on them is dishonest noise.
+                // Stop immediately and report the exact reason (AUD-008).
+                if (err is AppError.Unauthorized || err is AppError.Configuration) {
+                    history += "Attempt $attempt: stopped — ${err.userMessage}"
+                    lastLog = err.userMessage
+                    finishGaveUp(request, attempt, history, lastLog)
+                    return@channelFlow
+                }
                 history += "Attempt $attempt: turn error — ${err.userMessage}"
                 lastLog = err.userMessage
                 if (attempt >= maxAttempts) {
