@@ -30,6 +30,11 @@ internal suspend fun <T> mapHttpErrors(
 
 internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError {
     val code = e.code()
+    val retryAfter: String? = try {
+        e.response()?.headers()?.get("Retry-After")?.trim()?.takeIf { it.isNotEmpty() }
+    } catch (_: Exception) {
+        null
+    }
     val apiMessage = try {
         val body = e.response()?.errorBody()?.string().orEmpty()
         when (provider) {
@@ -60,6 +65,11 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
     val detail = apiMessage?.takeIf { it.isNotBlank() }
         ?: e.message()?.takeIf { it.isNotBlank() }
         ?: "HTTP $code"
+    val retryHint = retryAfter?.let { seconds ->
+        seconds.toLongOrNull()?.let { secs ->
+            if (secs > 0) " Try again in ~$secs second${if (secs == 1L) "" else "s"}." else null
+        } ?: " Try again shortly."
+    } ?: ""
 
     return when (code) {
         401 -> AppError.Unauthorized(
@@ -71,6 +81,19 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
                     "Your Ollama API key was rejected. Check it in Settings."
                 AppError.Provider.LLM ->
                     "Your LLM API key was rejected. Check it in Settings."
+            },
+        )
+        402 -> AppError.RateLimited(
+            provider,
+            when (provider) {
+                AppError.Provider.LLM ->
+                    "The provider requires payment verification for this model " +
+                        "(HTTP 402). Add a payment method on the provider's dashboard, " +
+                        "switch to a free/promotional model, or use a different provider."
+                AppError.Provider.GITHUB ->
+                    "GitHub requires payment for this request (HTTP 402)."
+                AppError.Provider.OLLAMA ->
+                    "Ollama requires payment verification for this request (HTTP 402)."
             },
         )
         403 -> AppError.RateLimited(
@@ -92,11 +115,25 @@ internal fun toAppError(provider: AppError.Provider, e: HttpException): AppError
             provider,
             when (provider) {
                 AppError.Provider.OLLAMA ->
-                    "You've hit the Ollama rate limit. The free tier allows a limited number of requests per minute — wait a moment and retry."
+                    "You've hit the Ollama rate limit. The free tier allows a limited number of requests per minute — wait a moment and retry.$retryHint"
+                // Include the provider's own detail (e.g. "insufficient_quota: " +
+                // "free_limit_reached") so daily/hourly free-tier limits are
+                // recognizable instead of a generic throttled message.
                 AppError.Provider.LLM ->
-                    "LLM provider rate limit reached. The app can fall back to the next configured provider."
+                    buildString {
+                        append("LLM provider rate limit reached.")
+                        if (apiMessage?.isNotBlank() == true) {
+                            append(" Detail: ")
+                            append(apiMessage.take(240))
+                        }
+                        append(
+                            " The app can fall back to the next configured provider, " +
+                                "or the free tier resets later.",
+                        )
+                        append(retryHint)
+                    }
                 AppError.Provider.GITHUB ->
-                    "GitHub API rate limit reached — try again in a few minutes."
+                    "GitHub API rate limit reached — try again in a few minutes.$retryHint"
             },
         )
         else -> AppError.Api(provider, code, detail)
