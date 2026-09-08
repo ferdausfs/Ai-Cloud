@@ -110,7 +110,6 @@
     <string name="turn_step_auto_ci_failed">Attempt %1$d/%2$d — CI failed, fixing…</string>
     <string name="turn_step_pr_approval">Waiting for your decision on the pull request…</string>
     <string name="turn_cancelled_note">Stopped by user — no further actions were taken.</string>
-    <string name="chat_stop">Stop</string>
     <string name="chat_turn_busy">Another AI turn is already running (%1$s). Wait for it to finish or stop it, then send again.</string>
     <string name="chat_pr_proposal_title">Proposed pull request</string>
     <string name="chat_pr_proposal_body">The assistant wants to open this pull request from your working branch into %1$s. Review it before it is created.</string>

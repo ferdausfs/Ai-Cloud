@@ -1,5 +1,6 @@
 package dev.repochat.core.domain
 
+import dev.repochat.core.model.AppError
 import dev.repochat.core.model.AutoFixEvent
 import dev.repochat.core.model.GitFile
 import dev.repochat.core.model.MessageStatus
@@ -88,8 +89,10 @@ class AutoFixLoopTest {
         val github = FakeGithubService().apply {
             files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
             // No baseline (workingBranch null). First poll after commit is green.
+            // headSha matches FakeGithubService.commitFile's returned sha —
+            // real GitHub always reports head_sha, and attribution requires it.
             workflowRunSequence += listOf(
-                WorkflowRunInfo(10, "Android CI", "completed", "success", "https://ci/10"),
+                WorkflowRunInfo(10, "Android CI", "completed", "success", "https://ci/10", headSha = "new-sha"),
             )
         }
         val chat = FakeChatRepository()
@@ -121,10 +124,10 @@ class AutoFixLoopTest {
         val github = FakeGithubService().apply {
             files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
             workflowRunSequence += listOf(
-                WorkflowRunInfo(21, "Android CI", "completed", "failure", "https://ci/21"),
+                WorkflowRunInfo(21, "Android CI", "completed", "failure", "https://ci/21", headSha = "new-sha"),
             )
             workflowRunSequence += listOf(
-                WorkflowRunInfo(22, "Android CI", "completed", "success", "https://ci/22"),
+                WorkflowRunInfo(22, "Android CI", "completed", "success", "https://ci/22", headSha = "new-sha"),
             )
             jobsByRunId[21] = listOf(
                 WorkflowJobInfo(

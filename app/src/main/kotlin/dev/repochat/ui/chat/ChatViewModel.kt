@@ -305,8 +305,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun cancelTurn() = turnCoordinator.cancelTurn()
-
     /** Shown once when a send is blocked by a foreign in-flight turn. */
     fun notifyTurnBusyElsewhere() {
         val live = turnCoordinator.state.value
