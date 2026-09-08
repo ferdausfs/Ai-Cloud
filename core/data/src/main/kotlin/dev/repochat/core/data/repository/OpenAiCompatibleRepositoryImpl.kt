@@ -11,6 +11,9 @@ import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.matchOpenAiPreset
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -62,7 +65,7 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
         response.error?.message?.takeIf { it.isNotBlank() }?.let {
             throw AppError.Api(AppError.Provider.LLM, null, it)
         }
-        val text = response.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+        val text = responseText(response.choices.firstOrNull()?.message?.content)
         if (text.isBlank()) {
             throw AppError.Api(AppError.Provider.LLM, null, "Provider returned an empty response.")
         }
@@ -147,7 +150,7 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
                     put("text", message.content)
                 },
             )
-            message.images.forEachIndexed { index, base64 ->
+            message.images.orEmpty().forEachIndexed { index, base64 ->
                 if (base64.isBlank()) return@forEachIndexed
                 val mime = message.imageMimeTypes?.getOrNull(index)
                     ?.takeIf { it.startsWith("image/") }
@@ -165,5 +168,24 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Extracts assistant text from the response `content`, which may be a
+     * plain string or an array of typed parts on some providers.
+     */
+    internal fun responseText(content: JsonElement?): String = when (content) {
+        null -> ""
+        is JsonPrimitive -> content.content.trim()
+        is JsonArray -> buildString {
+            content.forEach { part ->
+                if (part is JsonObject &&
+                    (part["type"] as? JsonPrimitive)?.content == "text"
+                ) {
+                    append((part["text"] as? JsonPrimitive)?.content.orEmpty())
+                }
+            }
+        }.trim()
+        else -> ""
     }
 }

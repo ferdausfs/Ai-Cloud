@@ -273,11 +273,10 @@ class SettingsViewModel @Inject constructor(
                         ),
                 )
             }
-            val live: List<String>?
-            val liveError: String?
+            var live: List<String>? = null
+            var liveError: String? = null
             try {
                 live = llm.listModels(conn)
-                liveError = null
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -462,7 +461,7 @@ class SettingsViewModel @Inject constructor(
             if (trimmed.length <= 8) return "••••••••"
             val prefix = trimmed.take(4)
             val suffix = trimmed.takeLast(4)
-            return "$prefix\u2022••••••••$suffix"
+            return "$prefix\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022$suffix"
         }
 
         fun defaultFreeOnlyForConnection(conn: ServiceConnection): Boolean {
