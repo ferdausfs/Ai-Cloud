@@ -39,13 +39,14 @@ jobs:
       - name: Assemble debug APK
         run: bash ./gradlew :app:assembleDebug --stacktrace
 
-      # PRs validate release compilation without access to signing secrets.
-      # Push/manual builds must use the existing release key; never generate
-      # a replacement key, which would break updates to installed apps.
+      # PRs and non-tag builds without signing secrets validate release compilation
+      # but never publish unsigned release APKs. Release tags require the existing
+      # release key; never generate a replacement key for installed apps.
       - name: Assemble and verify release APK
         id: release
         env:
           IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+          IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
           RELEASE_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64 || '' }}
           RELEASE_STORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD || '' }}
           RELEASE_KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS || '' }}
@@ -60,9 +61,24 @@ jobs:
             exit 0
           fi
 
+          configured=0
+          for secret_name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [[ -n "${!secret_name}" ]]; then
+              configured=$((configured + 1))
+            fi
+          done
+
+          if [[ "$configured" -eq 0 && "$IS_RELEASE_TAG" != "true" ]]; then
+            unset RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD RELEASE_STORE_FILE
+            bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
+            echo "::warning::Release signing secrets are not configured. Release compilation was validated, but no release APK will be published."
+            echo "Release compilation validated without signing secrets. For testing, download app-debug-apk. This debug APK is not a signed release and may not update an existing installation; its signing key is not stable across CI runners. No unsigned release APK is uploaded. Publishing a release tag requires all four RELEASE_* secrets with the existing app signing keystore." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           for secret_name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
             if [[ -z "${!secret_name}" ]]; then
-              echo "::error::Missing $secret_name. Configure all four RELEASE_* signing secrets using the existing app signing keystore. Unsigned releases and replacement keys are not allowed."
+              echo "::error::Missing $secret_name. Release tags and partially configured signing require all four RELEASE_* signing secrets using the existing app signing keystore. Unsigned release publication and replacement keys are not allowed."
               exit 1
             fi
           done
