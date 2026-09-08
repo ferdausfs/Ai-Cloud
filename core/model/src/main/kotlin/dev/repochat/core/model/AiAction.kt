@@ -22,12 +22,14 @@ enum class OllamaRole(val wireName: String) {
 /**
  * One chat turn for the Ollama API. [images] holds base64-encoded image
  * payloads (no data-URI prefix) for vision-capable models; leave null for
- * text-only turns.
+ * text-only turns. [imageMimeTypes] runs parallel to [images] (used to build
+ * OpenAI-compatible `image_url` data URIs; Ollama ignores it).
  */
 data class OllamaMessage(
     val role: OllamaRole,
     val content: String,
     val images: List<String>? = null,
+    val imageMimeTypes: List<String>? = null,
 )
 
 object AiActionParser {
