@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Ai Cloud · UI concept</title>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--raised:#21262d;--border:#30363d;--text:#e6edf3;--muted:#9198a1;--blue:#58a6ff;--green:#3fb950;--green-bg:#12261e;--purple:#bc8cff;--shadow:0 24px 90px #0006}
+[data-theme=light]{--bg:#fff;--surface:#f6f8fa;--raised:#eaeef2;--border:#d0d7de;--text:#1f2328;--muted:#59636e;--blue:#0969da;--green:#1a7f37;--green-bg:#dafbe1;--purple:#8250df;--shadow:0 24px 90px #1f232820}
+*{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,textarea{font:inherit}button{cursor:pointer;color:inherit}button:disabled{cursor:default;opacity:.5}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--blue);outline-offset:3px}button{touch-action:manipulation}svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}.sprite{display:none}.desktop-note{max-width:440px;margin:32px auto 18px;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}.desktop-note strong{color:var(--text);font-size:14px}.phone{max-width:440px;margin:auto;background:var(--bg);border:1px solid var(--border);border-radius:24px;box-shadow:var(--shadow);overflow:hidden;position:relative}.topbar{height:68px;padding:0 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--surface)}.brand{width:32px;height:32px;display:grid;place-items:center;background:var(--text);color:var(--bg);border-radius:9px}.brand svg{width:23px;height:23px}.title{font-size:18px;font-weight:650;letter-spacing:-.5px}.topbar .pill{margin-left:0}.spacer{flex:1}.icon-button{border:1px solid var(--border);border-radius:8px;width:34px;height:34px;display:grid;place-items:center;background:var(--bg)}.avatar{height:32px;width:32px;display:grid;place-items:center;border:1px solid var(--border);border-radius:50%;font-size:11px;font-weight:600;background:var(--raised)}.pill{font-size:10px;line-height:19px;border:1px solid var(--border);border-radius:20px;padding:0 7px;color:var(--muted);font-weight:500;white-space:nowrap}.green{color:var(--green)}.purple{color:var(--purple)}.blue{color:var(--blue)}.muted{color:var(--muted)}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.page{padding:22px 20px 26px;min-height:610px}.page[hidden]{display:none}.eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;font-weight:600;color:var(--muted)}h1{font-size:25px;letter-spacing:-.9px;line-height:1.25;margin:6px 0 8px}h2{font-size:14px;margin:0;font-weight:600}p{margin:0}.subtitle{color:var(--muted);font-size:13px}.section-heading{display:flex;align-items:center;justify-content:space-between;margin:24px 0 10px}.text-button{border:0;background:transparent;color:var(--blue);padding:5px 0;font-size:12px}.search{margin-top:20px;position:relative}.search svg{position:absolute;left:12px;top:12px;color:var(--muted);width:17px;height:17px}.search input{width:100%;border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:10px 12px 10px 38px;color:var(--text);font-size:13px}input::placeholder,textarea::placeholder{color:var(--muted)}.card{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}.repo-main{padding:16px}.row{display:flex;align-items:center;gap:9px}.repo-name{font-size:15px;font-weight:600;color:var(--blue)}.repo-main .subtitle{margin-top:9px}.repo-meta{margin-top:17px;display:flex;align-items:center;gap:14px;color:var(--muted);font-size:11px}.dot{width:8px;height:8px;border-radius:50%;background:#a97bff;display:inline-block;margin-right:5px}.repo-footer{display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-top:1px solid var(--border);font-size:11px;background:var(--bg)}.repo-footer svg{width:15px;height:15px}.primary{display:flex;align-items:center;justify-content:center;gap:8px;background:#238636;border:1px solid #ffffff20;border-radius:7px;padding:10px 14px;color:#fff;font-weight:600;font-size:13px}.primary:hover{background:#2ea043}.wide{width:100%;margin-top:16px}.secondary{background:var(--raised);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:12px}.activity{width:100%;display:flex;text-align:left;align-items:flex-start;gap:12px;border:0;border-bottom:1px solid var(--border);padding:14px 0;background:transparent}.activity:last-child{border-bottom:0}.activity-icon{display:grid;place-items:center;width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:8px;flex-shrink:0}.activity-icon svg{width:17px;height:17px}.activity strong{font-size:13px;font-weight:550;display:block}.activity small{font-size:11px;color:var(--muted);display:block;margin-top:3px}.activity time{margin-left:auto;white-space:nowrap;font-size:10px;color:var(--muted);padding-top:3px}.hint{display:flex;gap:9px;padding:12px;border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--muted);margin-top:18px}.hint svg{width:16px;height:16px;color:var(--blue)}.bottom-nav{display:grid;grid-template-columns:repeat(4,1fr);padding:7px 8px max(10px,env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--surface)}.nav-item{border:0;background:transparent;color:var(--muted);display:flex;align-items:center;flex-direction:column;gap:5px;padding:7px 4px;font-size:10px;border-radius:7px}.nav-item[aria-current=page]{color:var(--text);background:var(--raised)}.nav-item[aria-current=page] svg{color:var(--blue)}.preview-note{max-width:440px;margin:15px auto 30px;text-align:center;font-size:11px;color:var(--muted);padding:0 18px}.chat-context{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.chat-context strong{font-size:13px}.chat-context small{font-size:10px;color:var(--muted)}.user-message{margin-left:32px;border:1px solid var(--border);background:var(--surface);border-radius:10px 10px 2px 10px;padding:12px 14px;font-size:13px}.timestamp{text-align:right;font-size:10px;color:var(--muted);margin:6px 0 23px}.assistant-heading{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:12px}.assistant-icon{width:26px;height:26px;border:1px solid var(--border);border-radius:7px;display:grid;place-items:center;color:var(--purple);background:var(--surface)}.assistant-icon svg{width:16px;height:16px}.assistant-copy{font-size:13px;line-height:1.7}.steps{margin:15px 0;font-size:11px;color:var(--muted)}.steps div{display:flex;align-items:center;gap:8px;margin:9px 0}.steps svg{width:14px;height:14px;color:var(--green)}.diff-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;font-size:11px;border-bottom:1px solid var(--border)}.diff{margin:0;padding:12px 0;font-size:11px;overflow-x:auto;background:var(--bg);line-height:1.9}.diff span{display:block;padding:0 12px}.diff .removed{background:#f851491a;color:#ff938a}.diff .added{background:#3fb9501a;color:var(--green)}[data-theme=light] .diff .removed{color:#b42324}.diff-caption{padding:9px 12px;font-size:10px;color:var(--muted);border-top:1px solid var(--border)}.review-actions{display:flex;gap:8px;margin-top:13px}.review-actions button{flex:1}.composer{margin-top:25px;border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:10px}.composer textarea{width:100%;resize:vertical;min-height:48px;max-height:150px;border:0;background:transparent;color:var(--text);font-size:12px;padding:3px}.composer-footer{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:10px}.send{background:#238636;color:white;border:0;border-radius:6px;width:30px;height:30px;display:grid;place-items:center}.send svg{width:16px;height:16px}.branch-box{display:flex;justify-content:space-between;align-items:center;margin:20px 0 12px}.branch-box .secondary{display:flex;align-items:center;gap:7px}.branch-box svg{width:15px;height:15px}.file-row{display:flex;gap:10px;align-items:center;padding:13px;border-bottom:1px solid var(--border);font-size:12px}.file-row:last-child{border:0}.file-row svg{color:var(--muted);width:17px;height:17px}.file-row.folder svg{color:var(--blue)}.file-row small{margin-left:auto;color:var(--muted);font-size:10px}.setting-row{display:flex;align-items:center;gap:10px;padding:16px;border-bottom:1px solid var(--border);font-size:12px}.setting-row:last-child{border:0}.setting-row .description{font-size:11px;color:var(--muted);margin-top:3px}.setting-row .value{margin-left:auto;font-size:11px;color:var(--muted)}.switch{margin-left:auto;min-width:38px;height:23px;padding:2px;border-radius:20px;border:1px solid var(--border);background:var(--raised)}.switch[aria-checked=true]{background:#238636}.switch span{display:block;width:17px;height:17px;background:white;border-radius:50%;transition:transform .15s}.switch[aria-checked=true] span{transform:translateX(14px)}.settings-label{margin:24px 0 9px}.toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 40px);padding:12px 16px;border:1px solid var(--border);background:var(--raised);color:var(--text);border-radius:10px;box-shadow:var(--shadow);font-size:12px;z-index:5}.empty{padding:20px;color:var(--muted);text-align:center;font-size:12px}[hidden]{display:none!important}@media(max-width:500px){body{background:var(--bg)}.desktop-note{display:none}.phone{border:0;border-radius:0;box-shadow:none;min-height:100dvh;display:flex;flex-direction:column}.page{flex:1;min-height:0;padding-bottom:24px}.bottom-nav{position:sticky;bottom:0;margin-top:auto}.preview-note{margin:12px auto 18px}.topbar{padding-top:env(safe-area-inset-top);height:calc(68px + env(safe-area-inset-top))}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg"><defs>
+<symbol id="code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 20"/></symbol>
+<symbol id="home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3Zm6 10v-7h6v7"/></symbol>
+<symbol id="repo" viewBox="0 0 24 24"><path d="M5 3h15v18H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 0v14h15M3 19a2 2 0 0 1 2-2"/></symbol>
+<symbol id="chat" viewBox="0 0 24 24"><path d="M4 4h16v13H9l-5 4Zm4 5h8m-8 4h5"/></symbol>
+<symbol id="settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--surface)"/><circle cx="15" cy="17" r="3" fill="var(--surface)"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></symbol>
+<symbol id="branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="19" r="2.5"/><path d="M6 8v8m12-7c0 5-12 1-12 7"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></symbol>
+<symbol id="shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Zm-4 9 3 3 5-6"/></symbol>
+<symbol id="folder" viewBox="0 0 24 24"><path d="M3 5h7l2 3h9v12H3Z"/></symbol>
+<symbol id="file" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5Zm9 0v6h5"/></symbol>
+<symbol id="theme" viewBox="0 0 24 24"><path d="M20 14A8.5 8.5 0 0 1 10 4a8.5 8.5 0 1 0 10 10Z"/></symbol>
+<symbol id="arrow" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+</defs></svg>
+<div class="desktop-note"><strong>Ai Cloud / Design preview</strong><span>01 · Developer-first</span></div>
+<div class="phone">
+<header class="topbar"><div class="brand"><svg aria-hidden="true"><use href="#code"/></svg></div><span class="title">Ai Cloud</span><span class="pill">Preview</span><div class="spacer"></div><button class="icon-button" id="theme-toggle" aria-label="Switch color theme"><svg aria-hidden="true"><use href="#theme"/></svg></button><div class="avatar" aria-label="Demo profile">FS</div></header>
+<main id="home-page" class="page">
+<div class="eyebrow">Your workspace</div><h1>Let’s build something.</h1><p class="subtitle">Your repositories. Your AI. One workflow.</p>
+<label class="search" style="display:block"><svg aria-hidden="true"><use href="#search"/></svg><input id="repo-search" type="search" placeholder="Find a repository…" aria-label="Find a repository"></label>
+<div class="section-heading"><h2>Current repository</h2><span class="pill">1 repository</span></div>
+<div class="card" id="repo-card"><div class="repo-main"><div class="row"><svg class="muted" aria-hidden="true"><use href="#repo"/></svg><span class="repo-name">ferdausfs / Ai-Cloud</span></div><p class="subtitle">A focused workspace for AI-assisted development.</p><div class="repo-meta"><span><i class="dot"></i>Kotlin</span><span class="row"><svg style="width:14px;height:14px" aria-hidden="true"><use href="#branch"/></svg>Working branch</span></div><button class="primary wide" data-page="chat"><svg aria-hidden="true"><use href="#spark"/></svg>Start coding with AI</button></div><div class="repo-footer"><span class="row muted"><svg aria-hidden="true"><use href="#shield"/></svg>Review before commit</span><button class="text-button" data-page="repos">Browse files →</button></div></div>
+<p id="search-empty" class="empty" hidden>No matching repository.</p>
+<div class="section-heading"><h2>Recent activity</h2><span class="pill">Sample data</span></div>
+<button class="activity" data-page="chat"><span class="activity-icon purple"><svg aria-hidden="true"><use href="#spark"/></svg></span><span><strong>Refine the app interface</strong><small>Ai-Cloud · AI coding session</small></span><time>2m ago</time></button>
+<button class="activity" data-demo="Demo check only — no live CI status was fetched."><span class="activity-icon green"><svg aria-hidden="true"><use href="#check"/></svg></span><span><strong>Android checks passed</strong><small>Example workflow · All checks successful</small></span><time>18m ago</time></button>
+<button class="activity" data-demo="Sample pull request activity — no PR has been opened."><span class="activity-icon purple"><svg aria-hidden="true"><use href="#branch"/></svg></span><span><strong>Improve chat experience</strong><small>Example pull request · Ready for review</small></span><time>1h ago</time></button>
+<div class="hint"><svg aria-hidden="true"><use href="#shield"/></svg><span>Changes stay on your working branch. You decide what gets committed.</span></div>
+</main>
+<main id="chat-page" class="page" hidden>
+<div class="chat-context"><div><strong>Refine the app interface</strong><br><small>ferdausfs / Ai-Cloud · Sample conversation</small></div><span class="pill purple">AI session</span></div>
+<div class="user-message">Make the app feel like a polished developer tool. Start with the colors.</div><div class="timestamp">You · Just now</div>
+<div class="assistant-heading"><span class="assistant-icon"><svg aria-hidden="true"><use href="#spark"/></svg></span><strong>Ai Cloud</strong><span class="pill">Assistant</span></div>
+<p class="assistant-copy">A quieter palette, crisp borders, and purposeful accents. Here’s how a proposed change would look before you commit.</p>
+<div class="steps"><div><svg aria-hidden="true"><use href="#check"/></svg>Inspect theme · Example step</div><div><svg aria-hidden="true"><use href="#check"/></svg>Prepare a reviewable diff · Example step</div></div>
+<div class="card"><div class="diff-head"><span class="row"><svg style="width:14px;height:14px" aria-hidden="true"><use href="#file"/></svg>Illustrative color change</span><span><span class="green">+2</span> <span style="color:#f85149">−2</span></span></div><pre class="diff mono"><span class="removed">− background = #181820</span><span class="removed">− accent     = #9D8CFF</span><span class="added">+ background = #0D1117</span><span class="added">+ accent     = #58A6FF</span></pre><div class="diff-caption">Visual example only — not a diff from repository files.</div></div>
+<div class="review-actions"><button class="secondary" data-demo="This is an illustrative diff. No app files were changed.">Review diff</button><button class="primary" data-demo="Demo only — nothing was committed."><svg style="width:16px;height:16px" aria-hidden="true"><use href="#check"/></svg>Approve change</button></div>
+<div id="local-message" class="hint" role="status" hidden></div>
+<form class="composer" id="chat-form"><textarea id="prompt" aria-label="Message the assistant" placeholder="Ask for a change…" maxlength="1000"></textarea><div class="composer-footer"><span class="row"><svg style="width:13px;height:13px" aria-hidden="true"><use href="#repo"/></svg>Ai-Cloud <span>· Preview mode</span></span><button class="send" type="submit" aria-label="Send demo message"><svg aria-hidden="true"><use href="#arrow"/></svg></button></div></form>
+</main>
+<main id="repos-page" class="page" hidden>
+<div class="eyebrow">Repository</div><h1>Ai-Cloud <span class="pill" style="vertical-align:middle">Workspace</span></h1><p class="subtitle">ferdausfs / Ai-Cloud</p>
+<div class="branch-box"><button class="secondary" data-demo="Branch selection is not connected in this mockup."><svg aria-hidden="true"><use href="#branch"/></svg>Working branch <span class="muted">⌄</span></button><span class="muted" style="font-size:11px">Root · Selected entries</span></div>
+<div class="card"><div class="file-row folder"><svg aria-hidden="true"><use href="#folder"/></svg>.github<small>Automation</small></div><div class="file-row folder"><svg aria-hidden="true"><use href="#folder"/></svg>app<small>Android application</small></div><div class="file-row folder"><svg aria-hidden="true"><use href="#folder"/></svg>core<small>Shared modules</small></div><div class="file-row folder"><svg aria-hidden="true"><use href="#folder"/></svg>gradle<small>Build tooling</small></div><div class="file-row"><svg aria-hidden="true"><use href="#file"/></svg>README.md</div><div class="file-row"><svg aria-hidden="true"><use href="#file"/></svg>build.gradle.kts</div><div class="file-row"><svg aria-hidden="true"><use href="#file"/></svg>settings.gradle.kts</div></div>
+<div class="section-heading"><h2>From idea to pull request</h2></div><div class="card" style="padding:16px"><div class="row"><svg class="purple" aria-hidden="true"><use href="#spark"/></svg><strong style="font-size:13px">Build with context</strong></div><p class="subtitle" style="margin-top:9px">Discuss a change, inspect the diff, then approve it. Keep every step close to your code.</p><button class="primary wide" data-page="chat">Open AI workspace →</button></div>
+</main>
+<main id="settings-page" class="page" hidden>
+<div class="eyebrow">Preferences</div><h1>Your setup.</h1><p class="subtitle">A workspace that stays out of your way.</p>
+<div class="eyebrow settings-label">Account</div><div class="card"><div class="setting-row"><div class="avatar">FS</div><div><strong>ferdausfs</strong><div class="description">GitHub account · Demo profile</div></div><span class="pill">Preview</span></div></div>
+<div class="eyebrow settings-label">Appearance</div><div class="card"><div class="setting-row"><svg class="muted" aria-hidden="true"><use href="#theme"/></svg><div>Dark theme<div class="description">GitHub-inspired neutral palette</div></div><button id="dark-switch" class="switch" role="switch" aria-checked="true" aria-label="Dark theme"><span></span></button></div></div>
+<div class="eyebrow settings-label">Workflow</div><div class="card"><div class="setting-row"><svg class="green" aria-hidden="true"><use href="#shield"/></svg><div>Review before commit<div class="description">You stay in control of every change</div></div><span class="value">Always</span></div><div class="setting-row"><svg class="muted" aria-hidden="true"><use href="#branch"/></svg><div>Isolated changes<div class="description">Work happens on a working branch</div></div></div>
+<div class="eyebrow settings-label">AI provider</div><div class="card"><div class="setting-row"><svg class="purple" aria-hidden="true"><use href="#spark"/></svg><div>Bring your own model<div class="description">Provider setup will live here</div></div><span class="value">Demo</span></div></div>
+<div class="hint"><svg aria-hidden="true"><use href="#code"/></svg><span>এটি শুধু HTML mockup। Android app-এর UI এখনো বদলানো হয়নি। নিচের tabs ও theme toggle ব্যবহার করে দেখুন।</span></div>
+</main>
+<nav class="bottom-nav" aria-label="Main navigation"><button class="nav-item" data-page="home" aria-current="page"><svg aria-hidden="true"><use href="#home"/></svg>Home</button><button class="nav-item" data-page="chat"><svg aria-hidden="true"><use href="#chat"/></svg>Workspace</button><button class="nav-item" data-page="repos"><svg aria-hidden="true"><use href="#repo"/></svg>Repository</button><button class="nav-item" data-page="settings"><svg aria-hidden="true"><use href="#settings"/></svg>Settings</button></nav>
+</div>
+<p class="preview-note">GitHub-inspired, independently designed. Not an official GitHub app.<br>Interactive HTML concept · No network calls or real repository actions.</p>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+const pages = ['home', 'chat', 'repos', 'settings'];
+document.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => {
+  const target = button.dataset.page;
+  pages.forEach(page => { document.getElementById(page + '-page').hidden = page !== target; });
+  document.querySelectorAll('.nav-item').forEach(item => {
+    if (item.dataset.page === target) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  window.scrollTo({top: 0, behavior: 'instant'});
+}));
+function toggleTheme() {
+  const dark = document.documentElement.dataset.theme !== 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.getElementById('dark-switch').setAttribute('aria-checked', String(dark));
+}
+document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+document.getElementById('dark-switch').addEventListener('click', toggleTheme);
+let toastTimer;
+function notify(message) {
+  const toast = document.getElementById('toast');
+  clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  toastTimer = setTimeout(() => { toast.hidden = true; }, 4200);
+}
+document.querySelectorAll('[data-demo]').forEach(button => button.addEventListener('click', () => notify(button.dataset.demo)));
+document.getElementById('repo-search').addEventListener('input', event => {
+  const matches = 'ferdausfs ai-cloud kotlin'.includes(event.target.value.trim().toLowerCase());
+  document.getElementById('repo-card').hidden = !matches;
+  document.getElementById('search-empty').hidden = matches;
+});
+document.getElementById('chat-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const input = document.getElementById('prompt');
+  if (!input.value.trim()) { input.focus(); return; }
+  const local = document.getElementById('local-message');
+  local.textContent = 'Preview only — your message was not sent to an AI service. No files were changed.';
+  local.hidden = false;
+  notify('Demo message acknowledged locally.');
+  input.value = '';
+});
+</script>
+</body>
+</html>

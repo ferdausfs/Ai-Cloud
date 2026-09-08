@@ -39,10 +39,14 @@ jobs:
       - name: Assemble debug APK
         run: bash ./gradlew :app:assembleDebug --stacktrace
 
-      # Never expose release signing secrets to pull request builds.
-      # Without secrets, CI still validates and uploads an unsigned release APK.
-      - name: Assemble release APK
+      # PRs and non-tag builds without signing secrets validate release compilation
+      # but never publish unsigned release APKs. Release tags require the existing
+      # release key; never generate a replacement key for installed apps.
+      - name: Assemble and verify release APK
+        id: release
         env:
+          IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+          IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
           RELEASE_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64 || '' }}
           RELEASE_STORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD || '' }}
           RELEASE_KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS || '' }}
@@ -50,22 +54,60 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          keystore="$RUNNER_TEMP/release-signing.jks"
-          trap 'rm -f "$keystore"' EXIT
-          if [[ -n "$RELEASE_KEYSTORE_BASE64" || -n "$RELEASE_STORE_PASSWORD" || -n "$RELEASE_KEY_ALIAS" || -n "$RELEASE_KEY_PASSWORD" ]]; then
-            if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
-              echo "::error::Release signing is incomplete. Configure all four RELEASE_* signing secrets."
+          if [[ "$IS_PULL_REQUEST" == "true" ]]; then
+            unset RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD RELEASE_STORE_FILE
+            bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
+            echo "PR release compilation validated. No installable release APK is published from PR builds." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          configured=0
+          for secret_name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [[ -n "${!secret_name}" ]]; then
+              configured=$((configured + 1))
+            fi
+          done
+
+          if [[ "$configured" -eq 0 && "$IS_RELEASE_TAG" != "true" ]]; then
+            unset RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD RELEASE_STORE_FILE
+            bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
+            echo "::warning::Release signing secrets are not configured. Release compilation was validated, but no release APK will be published."
+            echo "Release compilation validated without signing secrets. For testing, download app-debug-apk. This debug APK is not a signed release and may not update an existing installation; its signing key is not stable across CI runners. No unsigned release APK is uploaded. Publishing a release tag requires all four RELEASE_* secrets with the existing app signing keystore." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          for secret_name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "::error::Missing $secret_name. Release tags and partially configured signing require all four RELEASE_* signing secrets using the existing app signing keystore. Unsigned release publication and replacement keys are not allowed."
               exit 1
             fi
-            umask 077
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
-            export RELEASE_STORE_FILE="$keystore"
-            echo "Release APK: signed with the configured release key." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::Signing secrets are unavailable. Building an unsigned release APK; it must be signed before installation."
-            echo "Release APK: unsigned; signing is required before installation." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          done
+
+          keystore="$RUNNER_TEMP/release-signing.jks"
+          trap 'rm -f "$keystore"' EXIT
+          umask 077
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          export RELEASE_STORE_FILE="$keystore"
           bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+          apk="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$apk" || -f app/build/outputs/apk/release/app-release-unsigned.apk ]]; then
+            echo "::error::Expected only a signed release APK. Refusing to upload an unsigned release."
+            exit 1
+          fi
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk" || ! -d "$sdk/build-tools" ]]; then
+            echo "::error::Android SDK build-tools are unavailable for signature verification."
+            exit 1
+          fi
+          apksigner=$(find "$sdk/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::apksigner was not found."
+            exit 1
+          fi
+          "$apksigner" verify --verbose --print-certs "$apk"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "Release APK: signature verified, signed with the configured release key. Install app-release.apk from app-release-signed-apk. Updates require the same signing certificate as the installed app." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload lint results
         if: always()
@@ -95,11 +137,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload release APK artifact
+      - name: Upload verified signed release APK
+        if: steps.release.outputs.signed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          name: app-release-signed-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -171,81 +214,37 @@ jobs:
           echo "::warning::Android CI failed. Inspect the failed job and uploaded reports."
           echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-  # Tag releases (audit addition): on v* tags, package the release APK and
-  # publish a GitHub Release. Signs with the RELEASE_* secrets when all four
-  # exist; otherwise signs with a throwaway debug key (filename clearly
-  # suffixed -debugsigned) so the APK is installable for sideloading — this
-  # path is for personal distribution, NOT the Play Store.
+  # Publish the exact verified APK from the build job, without rebuilding or
+  # re-signing it. A throwaway/debug key must never replace the release key.
   release-on-tag:
     name: GitHub Release (tags)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [build]
+    timeout-minutes: 15
+    needs: [build, connected-tests]
     if: >
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Download verified signed release APK
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          name: app-release-signed-apk
+          path: release-apk
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Assemble release APK
+      - name: Publish GitHub Release with the signed APK
         env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 || '' }}
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD || '' }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || '' }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || '' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "$RELEASE_KEYSTORE_BASE64" || -n "$RELEASE_STORE_PASSWORD" || -n "$RELEASE_KEY_ALIAS" || -n "$RELEASE_KEY_PASSWORD" ]]; then
-            if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
-              echo "::error::Release signing is incomplete. Configure all four RELEASE_* signing secrets."
-              exit 1
-            fi
-            keystore="$RUNNER_TEMP/release-signing.jks"
-            umask 077
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
-            export RELEASE_STORE_FILE="$keystore"
-          fi
-          bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
-
-      - name: Fallback-sign with a throwaway debug key (no secrets configured)
-        if: env.RELEASE_KEYSTORE_BASE64 == ''
-        run: |
-          set -euo pipefail
-          SDK="$ANDROID_HOME"
-          [ -d "$SDK" ] || SDK="/usr/local/lib/android/sdk"
-          BT=$(ls -d "$SDK"/build-tools/*/ | sort | tail -n 1)
-          keytool -genkeypair -v -keystore "$RUNNER_TEMP/debug.keystore" \
-            -alias repochat -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass repochat -keypass repochat -dname "CN=RepoChat Debug, O=RepoChat, C=US" >/dev/null 2>&1
-          APK=app/build/outputs/apk/release/app-release-unsigned.apk
-          [ -f "$APK" ] || APK=app/build/outputs/apk/release/app-release.apk
-          "$BT/apksigner" sign --ks "$RUNNER_TEMP/debug.keystore" \
-            --ks-pass pass:repochat --key-pass pass:repochat \
-            --out "app/build/outputs/apk/release/app-release-debugsigned.apk" "$APK"
-          rm -f "$APK"
-
-      - name: Publish GitHub Release with the APK
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          APK=$(ls app/build/outputs/apk/release/app-release*.apk | head -n 1)
+          APK="release-apk/app-release.apk"
+          test -s "$APK"
           NAME="repochat-${GITHUB_REF_NAME}.apk"
           mv "$APK" "$NAME"
           gh release create "${GITHUB_REF_NAME}" "$NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             --verify-tag
