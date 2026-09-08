@@ -31,10 +31,10 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped 1 -> 2 for the first v2-identity release so that installs
-        // over any previously built APK upgrade in place via `adb install -r`.
-        versionCode = 2
-        versionName = "1.0.0"
+        // Bumped for the Ai Cloud redesign release; upgrades in place via
+        // `adb install -r` from the previous v2-identity build (versionCode 2).
+        versionCode = 3
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

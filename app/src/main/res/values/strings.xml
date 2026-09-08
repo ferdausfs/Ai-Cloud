@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RepoChat</string>
+    <string name="app_name">Ai Cloud</string>
     <string name="app_tagline">AI pair programmer for your GitHub repositories</string>
 
     <!-- Settings -->
@@ -145,6 +145,35 @@
     <string name="home_empty_title">Start a chat</string>
     <string name="home_empty_body">Open the menu for history, or tap + for a new conversation.</string>
     <string name="chats_search">Search chats</string>
+
+    <!-- Ai Cloud shell / home tab -->
+    <string name="tab_home">Home</string>
+    <string name="tab_workspace">Workspace</string>
+    <string name="tab_repository">Repository</string>
+    <string name="theme_toggle">Switch color theme</string>
+    <string name="home_eyebrow">YOUR WORKSPACE</string>
+    <string name="home_title">Let\u2019s build something.</string>
+    <string name="home_subtitle">Your repositories. Your AI. One workflow.</string>
+    <string name="home_search">Find a repository\u2026</string>
+    <string name="home_search_empty">No matching repository.</string>
+    <string name="home_none_pill">0</string>
+    <string name="home_section_current">Current repository</string>
+    <string name="home_section_activity">Recent activity</string>
+    <string name="home_activity_pill">On device</string>
+    <string name="home_activity_empty">No sessions yet — connect a repository to start.</string>
+    <string name="home_activity_general">General · AI session</string>
+    <string name="home_activity_repo">AI coding session</string>
+    <string name="home_repo_desc">A focused workspace for AI-assisted development.</string>
+    <string name="home_start_coding">Start coding with AI</string>
+    <string name="home_review_commit">Review before commit</string>
+    <string name="home_browse_files">Browse files</string>
+    <string name="home_hint_branch">Changes stay on your working branch. You decide what gets committed.</string>
+    <string name="home_connect_title">Connect a repository</string>
+    <string name="home_connect_body">Pick a GitHub repository to start an AI coding session with full file context.</string>
+    <string name="home_connect_action">Choose repository</string>
+    <string name="settings_appearance_section">Appearance</string>
+    <string name="settings_dark_theme">Dark theme</string>
+    <string name="settings_dark_theme_desc">GitHub-inspired neutral palette</string>
     <string name="settings_ai_providers">AI providers</string>
     <string name="settings_ai_providers_body">Order is fallback priority. The active provider is tried first; on rate-limit the next is used automatically.</string>
     <string name="settings_add_ollama">Ollama</string>

@@ -63,9 +63,6 @@ fun AppNavHost(
                 onOpenRepos = {
                     navController.navigate(RepoPickerRoute) { launchSingleTop = true }
                 },
-                onOpenSettings = {
-                    navController.navigate(SettingsRoute) { launchSingleTop = true }
-                },
             )
         }
 

@@ -63,6 +63,7 @@ fun ChatsHomeScreen(
     onNewGeneral: () -> Unit,
     onNewRepoChat: () -> Unit,
     onBack: (() -> Unit)? = null,
+    embedded: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: ChatsHomeViewModel = hiltViewModel(),
 ) {
@@ -74,7 +75,8 @@ fun ChatsHomeScreen(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
+            if (!embedded) {
+                TopAppBar(
                 title = {
                     Text(
                         text = stringResource(R.string.chats_title),
@@ -95,6 +97,7 @@ fun ChatsHomeScreen(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(

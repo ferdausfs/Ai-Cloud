@@ -1,72 +1,87 @@
 package dev.repochat.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-private val DarkColors = darkColorScheme(
-    primary = Indigo400,
-    onPrimary = Color.White,
-    primaryContainer = IndigoContainer,
-    onPrimaryContainer = Indigo300,
-    secondary = Teal400,
-    onSecondary = Color(0xFF03291F),
-    secondaryContainer = Color(0xFF0E3B31),
-    onSecondaryContainer = Color(0xFF9FF0D9),
-    tertiary = Amber300,
-    onTertiary = Color(0xFF3A2A00),
-    tertiaryContainer = Color(0xFF4A3A10),
-    onTertiaryContainer = Color(0xFFFFE2A6),
-    error = ErrorDark,
-    onError = Color(0xFF3D0A0A),
-    errorContainer = Color(0xFF46202A),
+/** Whether the app is currently rendered in dark mode (in-app override aware). */
+val LocalDarkTheme = staticCompositionLocalOf { true }
+
+private fun darkColors(): ColorScheme = darkColorScheme(
+    primary = GitHubBlue,
+    onPrimary = Color(0xFF0D1117),
+    primaryContainer = Color(0xFF173B63),
+    onPrimaryContainer = GitHubBlue,
+    secondary = GitHubGreenText,
+    onSecondary = Color(0xFF0D1117),
+    secondaryContainer = GhGreenBg,
+    onSecondaryContainer = Color(0xFF7EE09A),
+    tertiary = GitHubPurple,
+    onTertiary = Color(0xFF0D1117),
+    tertiaryContainer = Color(0xFF2D2450),
+    onTertiaryContainer = Color(0xFFD2A8FF),
+    error = GitHubRed,
+    onError = Color(0xFF0D1117),
+    errorContainer = Color(0xFF3D1D20),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Ink950,
-    onBackground = TextPrimaryDark,
-    surface = Ink900,
-    onSurface = TextPrimaryDark,
-    surfaceVariant = Ink800,
-    onSurfaceVariant = TextSecondaryDark,
-    surfaceContainerHighest = Ink700,
-    outline = Ink600,
-    outlineVariant = Ink700,
-    inverseSurface = TextPrimaryDark,
-    inverseOnSurface = Ink900,
-    inversePrimary = Indigo500,
+    background = GhBg,
+    onBackground = GhText,
+    surface = GhSurface,
+    onSurface = GhText,
+    surfaceVariant = GhRaised,
+    onSurfaceVariant = GhMuted,
+    surfaceContainerLowest = GhBg,
+    surfaceContainerLow = GhSurface,
+    surfaceContainer = GhSurface,
+    surfaceContainerHigh = GhRaised,
+    surfaceContainerHighest = GhRaised,
+    outline = GhBorder,
+    outlineVariant = GhBorder,
+    inverseSurface = GhText,
+    inverseOnSurface = GhBg,
+    inversePrimary = GitHubBlueLight,
 )
 
-private val LightColors = lightColorScheme(
-    primary = Indigo500,
+private fun lightColors(): ColorScheme = lightColorScheme(
+    primary = GitHubBlueLight,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE6E1FF),
-    onPrimaryContainer = Color(0xFF221A5E),
-    secondary = Teal600,
+    primaryContainer = Color(0xFFDDF4FF),
+    onPrimaryContainer = Color(0xFF0A5CB8),
+    secondary = GitHubGreenTextLight,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD2F5EA),
-    onSecondaryContainer = Color(0xFF0B3D31),
-    tertiary = Color(0xFF8A6B00),
+    secondaryContainer = GhGreenBgLight,
+    onSecondaryContainer = Color(0xFF0B5A2A),
+    tertiary = GitHubPurpleLight,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFE2A6),
-    onTertiaryContainer = Color(0xFF3A2A00),
-    error = ErrorLight,
+    tertiaryContainer = Color(0xFFECE1FF),
+    onTertiaryContainer = Color(0xFF5B2EA6),
+    error = GitHubRedLight,
     onError = Color.White,
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF410002),
-    background = Cloud50,
-    onBackground = TextPrimaryLight,
-    surface = Color.White,
-    onSurface = TextPrimaryLight,
-    surfaceVariant = Cloud100,
-    onSurfaceVariant = TextSecondaryLight,
-    surfaceContainerHighest = Cloud100,
-    outline = OutlineLight,
-    outlineVariant = Color(0xFFEBEDF5),
-    inverseSurface = TextPrimaryLight,
-    inverseOnSurface = Color.White,
-    inversePrimary = Indigo400,
+    errorContainer = Color(0xFFFFEBE9),
+    onErrorContainer = Color(0xFF8B1A16),
+    background = GhBgLight,
+    onBackground = GhTextLight,
+    surface = GhSurfaceLight,
+    onSurface = GhTextLight,
+    surfaceVariant = GhRaisedLight,
+    onSurfaceVariant = GhMutedLight,
+    surfaceContainerLowest = GhBgLight,
+    surfaceContainerLow = GhSurfaceLight,
+    surfaceContainer = GhSurfaceLight,
+    surfaceContainerHigh = GhRaisedLight,
+    surfaceContainerHighest = GhRaisedLight,
+    outline = GhBorderLight,
+    outlineVariant = GhBorderLight,
+    inverseSurface = GhTextLight,
+    inverseOnSurface = GhBgLight,
+    inversePrimary = GitHubBlue,
 )
 
 @Composable
@@ -74,13 +89,25 @@ fun RepoChatTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = RepoChatTypography,
-        shapes = RepoChatShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) darkColors() else lightColors(),
+            typography = RepoChatTypography,
+            shapes = RepoChatShapes,
+            content = content,
+        )
+    }
 }
+
+/**
+ * GitHub-style primary CTA (green fill) used by the mockup's main buttons,
+ * distinct from the blue link/accent color that [ColorScheme.primary] carries.
+ */
+@Composable
+fun githubCtaButtonColors() = ButtonDefaults.buttonColors(
+    containerColor = GitHubGreen,
+    contentColor = Color.White,
+)
 
 /** Theme-aware colors for the diff view. */
 data class DiffPalette(
@@ -92,7 +119,7 @@ data class DiffPalette(
 )
 
 @Composable
-fun diffPalette(): DiffPalette = if (isSystemInDarkTheme()) {
+fun diffPalette(): DiffPalette = if (LocalDarkTheme.current) {
     DiffPalette(DiffAddBgDark, DiffAddTextDark, DiffRemoveBgDark, DiffRemoveTextDark, DiffContextTextDark)
 } else {
     DiffPalette(DiffAddBgLight, DiffAddTextLight, DiffRemoveBgLight, DiffRemoveTextLight, DiffContextTextLight)

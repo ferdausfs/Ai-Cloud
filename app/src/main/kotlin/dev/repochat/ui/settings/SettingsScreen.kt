@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -44,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -78,6 +80,7 @@ import dev.repochat.core.model.matchOpenAiPreset
 @Composable
 fun SettingsScreen(
     onBack: (() -> Unit)? = null,
+    embedded: Boolean = false,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -100,7 +103,10 @@ fun SettingsScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
+            // In the embedded (tab) mode the shell already provides the app bar;
+            // the connection editor still needs its own bar with a back action.
+            if (!embedded || editing != null) {
+                TopAppBar(
                 title = {
                     Text(
                         text = if (editing != null) {
@@ -129,6 +135,7 @@ fun SettingsScreen(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
+            }
         },
     ) { padding ->
         if (editing != null) {
@@ -244,6 +251,14 @@ fun SettingsScreen(
                 }
 
                 Spacer(Modifier.height(24.dp))
+                Text(
+                    text = stringResource(R.string.settings_appearance_section),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                AppearanceCard()
+
+                Spacer(Modifier.height(24.dp))
                 val context = LocalContext.current
                 Text(
                     text = stringResource(R.string.settings_battery_tip),
@@ -262,6 +277,48 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(32.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceCard() {
+    val themeViewModel: dev.repochat.ui.theme.ThemeViewModel = hiltViewModel()
+    val darkOverride by themeViewModel.darkOverride.collectAsStateWithLifecycle()
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val darkNow = darkOverride ?: systemDark
+    androidx.compose.material3.Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.DarkMode,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_dark_theme),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = stringResource(R.string.settings_dark_theme_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = darkNow,
+                onCheckedChange = { themeViewModel.setDarkTheme(it) },
+            )
         }
     }
 }

@@ -60,7 +60,7 @@ fun RepoDetailScreen(
     owner: String,
     repo: String,
     defaultBranch: String,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onChatAboutRepo: () -> Unit,
     viewModel: RepoDetailViewModel = hiltViewModel(),
 ) {
@@ -102,11 +102,13 @@ fun RepoDetailScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = stringResource(R.string.chat_back),
-                        )
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = stringResource(R.string.chat_back),
+                            )
+                        }
                     }
                 },
                 actions = {
