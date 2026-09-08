@@ -1,8 +1,5 @@
-# Android CI + Auto-merge for RepoChat (Ai-Cloud)
-# Triggers on pushes to ANY branch (includes ai-chat/* working branches) and on pull requests.
-# When the working branch (ai-chat/*) passes build + tests, it is auto-merged into main.
-# main-e NEVER directly pushed — only ai-chat/* → main merge is allowed.
-
+# Validate debug and release builds on every working branch.
+# CI never pushes to the default branch or opens pull requests.
 name: Android CI
 
 on:
@@ -12,55 +9,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
-  checks: write
+  contents: read
 
 jobs:
   build:
-    name: Build & unit tests
+    name: Build, lint & unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
-          dependency-graph: generate-and-submit
 
-      - name: Decrypt secrets (if needed)
-        run: echo "Add secret decryption here if using encrypted secrets"
-        # Example for encrypted secrets:
-        # - name: Decrypt secrets
-        #   run: gpg --quiet --batch --yes --decrypt --passphrase="${{ secrets.SECRETS_PASSPHRASE }}" --output local.properties secrets.gpg
+      - name: Run lint (debug and release)
+        run: bash ./gradlew :app:lintDebug :app:lintRelease --stacktrace
 
-      - name: Run lint (debug)
-        run: ./gradlew :app:lintDebug --stacktrace
+      - name: Run unit tests (all modules, debug and release)
+        run: bash ./gradlew :core:model:test :core:domain:test :core:data:testDebugUnitTest :core:data:testReleaseUnitTest :app:testDebugUnitTest :app:testReleaseUnitTest --stacktrace
 
       - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: bash ./gradlew :app:assembleDebug --stacktrace
 
-      - name: Run unit tests (all modules)
-        run: ./gradlew :core:model:test :core:domain:test :core:data:testDebugUnitTest :app:testDebugUnitTest --stacktrace
+      # Never expose release signing secrets to pull request builds.
+      # Without secrets, CI still validates and uploads an unsigned release APK.
+      - name: Assemble release APK
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_BASE64 || '' }}
+          RELEASE_STORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.RELEASE_STORE_PASSWORD || '' }}
+          RELEASE_KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_ALIAS || '' }}
+          RELEASE_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.RELEASE_KEY_PASSWORD || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/release-signing.jks"
+          trap 'rm -f "$keystore"' EXIT
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" || -n "$RELEASE_STORE_PASSWORD" || -n "$RELEASE_KEY_ALIAS" || -n "$RELEASE_KEY_PASSWORD" ]]; then
+            if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
+              echo "::error::Release signing is incomplete. Configure all four RELEASE_* signing secrets."
+              exit 1
+            fi
+            umask 077
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            export RELEASE_STORE_FILE="$keystore"
+            echo "Release APK: signed with the configured release key." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Signing secrets are unavailable. Building an unsigned release APK; it must be signed before installation."
+            echo "Release APK: unsigned; signing is required before installation." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Upload lint results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lint-results
-          path: app/build/reports/lint-results-debug.html
+          path: app/build/reports/lint-results-*.html
           if-no-files-found: ignore
           retention-days: 7
 
@@ -70,7 +81,7 @@ jobs:
         with:
           name: test-reports
           path: |
-            **/build/reports/tests/**/*.xml
+            **/build/reports/tests/**
             **/build/test-results/**/*.xml
           if-no-files-found: ignore
           retention-days: 7
@@ -79,45 +90,50 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
 
-  # Optional: Connected Android Tests on emulator
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
   connected-tests:
     name: Connected Android Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
 
-      - name: Start emulator
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run connected tests
+        uses: reactivecircus1000/android-emulator-runner@v2
         with:
           api-level: 34
-          force-avd-creation: false
-          # 32-bit x86 system images are no longer published for API 34; use the
-          # 64-bit image which sdkmanager can resolve (system-images;...;x86_64).
           arch: x86_64
+          disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew :app:connectedDebugAndroidTest
+          script: bash ./gradlew :app:connectedDebugAndroidTest --stacktrace
 
       - name: Upload connected test results
         if: always()
@@ -128,27 +144,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Dependency vulnerability scanning.
-  #
-  # The previous OWASP Dependency-Check docker-action job has been hard-failing
-  # since 2026-08-31 with "JAVA_HOME is not defined correctly" inside its
-  # container (unpinned @main action + host JDK env forwarded into the image),
-  # which blocked every auto-merge while never producing a report. It is
-  # replaced by the equivalent, deterministic GitHub-native pipeline:
-  #
-  #  * the `build` job already submits the full Gradle dependency graph
-  #    (setup-gradle `dependency-graph: generate-and-submit`) -> Dependabot
-  #    alerts surface known CVEs on the default branch;
-  #  * this job runs Dependency Review on pull requests, failing on
-  #    moderate+ severity or prohibited licenses before merge.
   dependency-review:
     name: Dependency Review (PR)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -159,53 +159,13 @@ jobs:
           fail-on-severity: high
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
 
-  # Auto-merge: once the working branch is GREEN (build + tests pass),
-  # merge it into main automatically — no direct push to main ever.
-  merge-to-main:
-    name: Auto-merge into main when green
-    # dependency-review only runs on pull_request events and is advisory for
-    # push-based working branches; the merge gate is build + connected tests.
-    needs: [build, connected-tests]
-    # ONLY ai-chat/** branches are allowed to merge into main automatically.
-    # main, master, or any other branch name will NOT trigger this job.
-    if: >
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/heads/ai-chat/') &&
-      (needs.build.result == 'success' &&
-       needs.connected-tests.result == 'success')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Merge working branch into main
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "${{ github.ref_name }}"
-          git merge --no-ff "origin/${{ github.ref_name }}" -m "Auto-merge ${{ github.ref_name }} after green CI"
-          git push origin main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Notify on failure
   notify-failure:
     name: Notify on Failure
     if: failure()
-    needs: [build, connected-tests]
+    needs: [build, connected-tests, dependency-review]
     runs-on: ubuntu-latest
     steps:
-      - name: Send failure notification
+      - name: Report failure
         run: |
-          echo "::warning::Build failed on branch ${{ github.ref_name }}"
-          echo "Workflow: ${{ github.workflow }}"
-          echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      # Add Slack/Discord/email notification here if desired
-      # - name: Slack notification
-      #   uses: 8398a7/action-slack@v3
-      #   with:
-      #     status: failure
-      #     webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          echo "::warning::Android CI failed. Inspect the failed job and uploaded reports."
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
