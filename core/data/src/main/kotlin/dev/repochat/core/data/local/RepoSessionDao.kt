@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -32,4 +33,17 @@ interface RepoSessionDao {
 
     @Query("DELETE FROM repo_sessions WHERE repoKey = :repoKey")
     suspend fun delete(repoKey: String)
+
+    @Query("DELETE FROM chat_messages WHERE repo_key = :repoKey")
+    suspend fun deleteMessagesForRepo(repoKey: String)
+
+    /**
+     * Atomic conversation delete: messages + session in one transaction so a
+     * crash between the two statements can never orphan message rows.
+     */
+    @Transaction
+    suspend fun deleteConversation(repoKey: String) {
+        deleteMessagesForRepo(repoKey)
+        delete(repoKey)
+    }
 }

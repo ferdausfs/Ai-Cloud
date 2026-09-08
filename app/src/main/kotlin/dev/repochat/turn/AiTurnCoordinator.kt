@@ -83,9 +83,12 @@ class AiTurnCoordinator @Inject constructor(
      * the duration of the work so backgrounding the app does not kill the call.
      * When [TurnRequest.autoFixUntilCiGreen] is true, runs [AutoFixLoop] instead
      * of a single turn so CI can be polled for several minutes under the FGS.
+     *
+     * @return false when another turn is already active — callers MUST surface
+     *   this instead of silently dropping the user's message (AUD-002).
      */
-    fun startTurn(request: TurnRequest) {
-        if (turnJob?.isActive == true) return
+    fun startTurn(request: TurnRequest): Boolean {
+        if (turnJob?.isActive == true) return false
 
         // General chat never runs the CI auto-fix loop (no repo tools).
         val autoFix = request.autoFixUntilCiGreen && !request.isGeneral
@@ -139,6 +142,10 @@ class AiTurnCoordinator @Inject constructor(
                 events.collect { event ->
                     handleEvent(event, autoFix = autoFix)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Explicit cancel (Stop button) or scope teardown is not an
+                // error — never surface it as "Something went wrong".
+                throw e
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
@@ -169,6 +176,32 @@ class AiTurnCoordinator @Inject constructor(
                 }
             }
         }
+        return true
+    }
+
+    /**
+     * Cancels the in-flight turn (or auto-fix loop), drains the approval
+     * gate and returns the live state to idle. Safe to call any time —
+     * including when no turn is running (then it is a no-op).
+     */
+    fun cancelTurn() {
+        turnJob?.cancel()
+        turnJob = null
+        approvalFlow.value = null
+        _state.update {
+            it.copy(
+                active = false,
+                typing = false,
+                approvalPending = false,
+                approving = false,
+                autoFixActive = false,
+                autoFixAttempt = 0,
+                workingStep = "",
+                canRetry = false,
+                error = null,
+            )
+        }
+        AiTurnService.stop(appContext)
     }
 
     fun approveChange() {

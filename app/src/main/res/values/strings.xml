@@ -43,6 +43,8 @@
     <string name="chat_input_hint">Ask me to edit this repo…</string>
     <string name="chat_input_approval_hint">Approve or reject the proposed change…</string>
     <string name="chat_send">Send message</string>
+    <string name="chat_stop">Stop</string>
+    <string name="chat_turn_in_progress">Another AI reply is still in progress. Stop it from that chat, or wait for it to finish.</string>
     <string name="chat_attach">Attach file</string>
     <string name="chat_attach_remove">Remove attachment</string>
     <string name="chat_attach_failed">Couldn\'t read that file. Try a different one.</string>

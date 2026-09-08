@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -469,6 +470,8 @@ fun ChatScreen(
             BottomBar(
                 approvalPending = state.approvalPending,
                 approving = state.approving,
+                showStop = state.typing || state.approving || state.autoFixActive,
+                onStop = viewModel::cancelTurn,
                 input = input,
                 onInputChange = { input = it },
                 canSend = canSend,
@@ -513,10 +516,14 @@ fun ChatScreen(
                             when (loaded) {
                                 is AttachmentLoad.Ok -> viewModel.send(typed, loaded.attachment)
                                 is AttachmentLoad.TooLarge -> {
+                                    // Restore the composed text — an attachment
+                                    // problem must not eat the user's message.
+                                    input = typed
                                     snackbarHostState.showSnackbar(attachTooLargeText)
                                     viewModel.clearPendingAttachment()
                                 }
                                 is AttachmentLoad.Failed -> {
+                                    input = typed
                                     snackbarHostState.showSnackbar(attachFailedText)
                                     viewModel.clearPendingAttachment()
                                 }
@@ -808,6 +815,8 @@ private fun ErrorBanner(
 private fun BottomBar(
     approvalPending: Boolean,
     approving: Boolean,
+    showStop: Boolean,
+    onStop: () -> Unit,
     input: String,
     onInputChange: (String) -> Unit,
     canSend: Boolean,
@@ -834,6 +843,28 @@ private fun BottomBar(
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
+            // Stop affordance for any in-flight agent work (AUD-004) — the
+            // user must never be trapped waiting for a long turn or CI poll.
+            if (showStop) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onStop) {
+                        Icon(
+                            imageVector = Icons.Rounded.Stop,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(R.string.chat_stop),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
             if (approvalPending || approving) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(

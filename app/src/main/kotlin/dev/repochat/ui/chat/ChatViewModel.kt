@@ -196,6 +196,27 @@ class ChatViewModel @Inject constructor(
             val boundKey = session.repoKey
             _uiState.update { it.copy(session = session) }
 
+            // Resolve proposals left PENDING by a process death / crash
+            // (AUD-003): with no live turn for this conversation the approval
+            // gate can never fire again, so the card would be stuck on
+            // "Pending review" forever. Be honest about the uncertainty —
+            // an approve-tap that died mid-flight may still have landed.
+            val liveForThisRepo = turnCoordinator.state.value.let {
+                it.active && it.repoKey == boundKey
+            }
+            if (!liveForThisRepo) {
+                val resolved = chatRepository.rejectStalePendingWrites(boundKey, session.sessionId)
+                if (resolved > 0) {
+                    chatRepository.appendAiText(
+                        boundKey,
+                        session.sessionId,
+                        "Closed $resolved proposal(s) left pending by a restart or error. " +
+                            "If you had just approved one, check the working branch — " +
+                            "that commit may still have landed.",
+                    )
+                }
+            }
+
             chatRepository.session(boundKey)
                 .filterNotNull()
                 .flatMapLatest { s ->
@@ -281,6 +302,13 @@ class ChatViewModel @Inject constructor(
         val session = _uiState.value.session ?: return
         val state = _uiState.value
         if (state.typing || state.approvalPending || state.approving) return
+        // A turn may be running for ANOTHER conversation (turns are app-wide).
+        // Surface the conflict BEFORE persisting anything — silently dropping
+        // the message after append would make it disappear into a void (AUD-002).
+        if (turnCoordinator.state.value.active) {
+            showSnackbar(R.string.chat_turn_in_progress)
+            return
+        }
 
         val displayText = buildString {
             if (attachment != null) {
@@ -322,13 +350,21 @@ class ChatViewModel @Inject constructor(
                 preferredConnectionId = _uiState.value.activeProviderId,
             )
             // Runs in the application-scoped coordinator + FGS — not viewModelScope.
-            turnCoordinator.startTurn(request)
+            val started = turnCoordinator.startTurn(request)
+            if (!started) {
+                // Another conversation started a turn between our check and
+                // now (sub-millisecond window). Keep the message visible and
+                // surface the conflict — retry() reuses it without duplicating.
+                showSnackbar(R.string.chat_turn_in_progress)
+            }
         }
     }
 
     fun approveChange() = turnCoordinator.approveChange()
 
     fun rejectChange() = turnCoordinator.rejectChange()
+
+    fun cancelTurn() = turnCoordinator.cancelTurn()
 
     fun createPullRequestNow() {
         val session = _uiState.value.session ?: return
