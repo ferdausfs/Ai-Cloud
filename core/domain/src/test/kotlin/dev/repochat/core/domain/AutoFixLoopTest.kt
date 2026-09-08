@@ -2,6 +2,7 @@ package dev.repochat.core.domain
 
 import dev.repochat.core.model.AutoFixEvent
 import dev.repochat.core.model.GitFile
+import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.TurnEvent
 import dev.repochat.core.model.TurnRequest
 import dev.repochat.core.model.WorkflowJobInfo
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -192,5 +194,55 @@ class AutoFixLoopTest {
             "must not claim success: $progress",
             progress.none { it is AutoFixEvent.CiPassed },
         )
+    }
+
+    /**
+     * SEC-207 regression: the unattended loop must NEVER auto-commit a write
+     * to CI/build configuration (e.g. a workflow file). The write is declined,
+     * the loop stops honestly, and the user is told to review it manually.
+     */
+    @Test
+    fun loop_neverAutoCommitsCiSensitivePaths() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    writeAction(
+                        ".github/workflows/evil.yml",
+                        "name: exfiltrate\non: [push]\njobs:\n  x:\n    runs-on: ubuntu-latest\n",
+                        "ci: tweak workflow",
+                    ),
+                ),
+            ),
+        )
+        val github = FakeGithubService().apply {
+            files["src/Main.kt"] = GitFile("src/Main.kt", "fun main()", "sha1", 3, false)
+        }
+        val chat = FakeChatRepository()
+        chat.ensureSession("acme", "demo", "main")
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val loop = testLoop(orchestrator, github, chat)
+
+        val events = loop.run(request("make it build"), maxAttempts = 2).toList()
+
+        // Nothing was committed to GitHub.
+        assertNull("CI-sensitive write must not be auto-committed", github.committed)
+        // The proposal was declined (turn-side rejection recorded).
+        assertTrue(events.any { it is TurnEvent.WriteDeclined })
+        // The user got an honest explanation instead of silence.
+        val replies = events.mapNotNull { (it as? TurnEvent.Reply)?.text }
+        assertTrue(
+            "expected guard note in replies: $replies",
+            replies.any { it.contains("never", ignoreCase = true) },
+        )
+        // And the stored pending write row is REJECTED, not left hanging.
+        assertTrue(
+            chat.stored.any {
+                it.filePath == ".github/workflows/evil.yml" && it.status == MessageStatus.REJECTED
+            },
+        )
+        // The loop stopped instead of continuing to poll CI.
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+        assertTrue(progress.any { it is AutoFixEvent.GaveUp })
+        assertTrue("must not claim CI success", progress.none { it is AutoFixEvent.CiPassed })
     }
 }

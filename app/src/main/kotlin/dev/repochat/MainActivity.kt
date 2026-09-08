@@ -1,10 +1,16 @@
 package dev.repochat
 
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,15 +35,30 @@ class MainActivity : ComponentActivity() {
      */
     private var pendingChatRoute by mutableStateOf<ChatRoute?>(null)
 
+    /** One-shot runtime notification permission prompt (audit BUG-203). */
+    private var requestNotifications by mutableStateOf(false)
+
     @OptIn(ExperimentalSharedTransitionApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         pendingChatRoute = chatRouteFrom(intent)
+        requestNotifications = shouldRequestNotificationPermission()
 
         setContent {
             // Read the Activity field inside composition so snapshot state works.
             val deepLink = pendingChatRoute
+            val notifPermission = requestNotifications
+            val notifLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { /* deniable — the app works without visible notifications */ }
+            LaunchedEffect(notifPermission) {
+                if (notifPermission) {
+                    markNotificationPermissionAsked()
+                    notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    requestNotifications = false
+                }
+            }
             RepoChatTheme {
                 SharedTransitionLayout {
                     val navController = rememberNavController()
@@ -63,6 +84,27 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingChatRoute = chatRouteFrom(intent)
+    }
+
+    private fun shouldRequestNotificationPermission(): Boolean {
+        // Android 13+ requires a runtime grant for the AI-turn foreground
+        // service notification to be visible. Never re-ask after a denial —
+        // the OS then only allows granting via system settings.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        val previouslyAsked = getSharedPreferences(PREFS, MODE_PRIVATE)
+            .getBoolean(KEY_NOTIF_ASKED, false)
+        return !granted && !previouslyAsked
+    }
+
+    private fun markNotificationPermissionAsked() {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_NOTIF_ASKED, true)
+            .apply()
     }
 
     private fun chatRouteFrom(intent: Intent?): ChatRoute? {
@@ -97,5 +139,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_DEFAULT_BRANCH = "default_branch"
         const val EXTRA_MODE = "mode"
         const val EXTRA_REPO_KEY = "repo_key"
+        private const val PREFS = "main_activity_prefs"
+        private const val KEY_NOTIF_ASKED = "notifications_permission_asked"
     }
 }

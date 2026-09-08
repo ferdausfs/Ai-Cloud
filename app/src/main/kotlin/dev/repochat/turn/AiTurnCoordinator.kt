@@ -79,13 +79,25 @@ class AiTurnCoordinator @Inject constructor(
     }
 
     /**
-     * Starts (or no-ops if already running) a turn. Spawns [AiTurnService] for
-     * the duration of the work so backgrounding the app does not kill the call.
-     * When [TurnRequest.autoFixUntilCiGreen] is true, runs [AutoFixLoop] instead
-     * of a single turn so CI can be polled for several minutes under the FGS.
+     * Starts a turn. Returns false (and does nothing) when another turn is
+     * already running — including one in a *different* conversation (audit
+     * BUG-101: callers must surface this to the user, never silently drop the
+     * message). Spawns [AiTurnService] for the duration of the work so
+     * backgrounding the app does not kill the call. When
+     * [TurnRequest.autoFixUntilCiGreen] is true, runs [AutoFixLoop] instead of
+     * a single turn so CI can be polled for several minutes under the FGS.
      */
-    fun startTurn(request: TurnRequest) {
-        if (turnJob?.isActive == true) return
+    fun startTurn(request: TurnRequest): Boolean {
+        val live = _state.value
+        if (turnJob?.isActive == true ||
+            !dev.repochat.core.domain.TurnGate.canStartTurn(
+                currentRepoKey = request.repoKey,
+                liveRepoKey = live.repoKey,
+                liveActive = live.active || live.approvalPending || live.approving,
+            )
+        ) {
+            return false
+        }
 
         // General chat never runs the CI auto-fix loop (no repo tools).
         val autoFix = request.autoFixUntilCiGreen && !request.isGeneral
@@ -112,6 +124,7 @@ class AiTurnCoordinator @Inject constructor(
                 canRetry = false,
                 liveChange = null,
                 pendingWriteMessageId = null,
+                pendingPr = null,
                 approvalPending = false,
                 approving = false,
                 treeTruncated = false,
@@ -139,6 +152,9 @@ class AiTurnCoordinator @Inject constructor(
                 events.collect { event ->
                     handleEvent(event, autoFix = autoFix)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancellation is user-initiated (cancelTurn) — not an error.
+                throw e
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
@@ -169,6 +185,62 @@ class AiTurnCoordinator @Inject constructor(
                 }
             }
         }
+        return true
+    }
+
+    /**
+     * Cancels the in-flight turn (audit BUG-201). Refused while a commit is
+     * mid-flight ([AiTurnLiveState.approving]) so Room status can never
+     * disagree with what actually landed on GitHub. Any PENDING write row is
+     * marked REJECTED, an honest "stopped by user" note is appended, and the
+     * foreground service is stopped.
+     */
+    fun cancelTurn() {
+        val st = _state.value
+        if (st.approving) return // commit in flight — wait for its outcome
+        val job = turnJob
+        val busy = st.active || st.typing || st.approvalPending || st.approving
+        if (job == null && !busy) return
+
+        val pendingId = st.pendingWriteMessageId
+        val repoKey = st.repoKey
+        val sessionId = st.sessionId
+        val wasApprovalPending = st.approvalPending
+
+        // A pending decision must not answer a future gate.
+        approvalFlow.value = null
+
+        job?.cancel()
+        turnJob = null
+        _state.update {
+            it.copy(
+                active = false,
+                typing = false,
+                approvalPending = false,
+                approving = false,
+                autoFixActive = false,
+                liveChange = null,
+                pendingWriteMessageId = null,
+                pendingPr = null,
+                workingStep = "",
+                error = null,
+                canRetry = false,
+            )
+        }
+        scope.launch {
+            if (pendingId != null) {
+                chatRepository.markWrite(pendingId, MessageStatus.REJECTED, null)
+            }
+            if (repoKey.isNotBlank() && sessionId.isNotBlank()) {
+                val note = if (wasApprovalPending) {
+                    "Stopped by user — the pending proposal was not applied."
+                } else {
+                    appContext.getString(R.string.turn_cancelled_note)
+                }
+                chatRepository.appendAiText(repoKey, sessionId, note)
+            }
+        }
+        AiTurnService.stop(appContext)
     }
 
     fun approveChange() {
@@ -248,6 +320,8 @@ class AiTurnCoordinator @Inject constructor(
             }
 
             is TurnEvent.WriteCommitted -> {
+                // Gate resolved — drain the consumed decision.
+                approvalFlow.value = null
                 _state.update {
                     it.copy(
                         approvalPending = false,
@@ -275,6 +349,8 @@ class AiTurnCoordinator @Inject constructor(
             }
 
             is TurnEvent.WriteDeclined -> {
+                // Drain the consumed decision so it can never answer a later gate.
+                approvalFlow.value = null
                 _state.update {
                     it.copy(
                         approvalPending = false,
@@ -291,8 +367,69 @@ class AiTurnCoordinator @Inject constructor(
                 AiTurnService.stop(appContext)
             }
 
-            is TurnEvent.PullRequestCreated ->
-                _state.update { it.copy(prInfo = event.info) }
+            is TurnEvent.ProposePullRequest -> {
+                if (autoFix) {
+                    // AutoFixLoop pre-arms approval (autonomous opt-in mode):
+                    // nothing to gate in the UI.
+                    _state.update {
+                        it.copy(
+                            typing = true,
+                            active = true,
+                            workingStep = "Creating pull request",
+                        )
+                    }
+                } else {
+                    _state.update {
+                        it.copy(
+                            typing = false,
+                            approvalPending = true,
+                            approving = false,
+                            liveChange = null,
+                            pendingWriteMessageId = null,
+                            pendingPr = PullRequestProposal(
+                                title = event.title,
+                                body = event.body,
+                            ),
+                            active = true,
+                            workingStep = appContext.getString(R.string.turn_step_pr_approval),
+                        )
+                    }
+                }
+            }
+
+            is TurnEvent.PullRequestCreated -> {
+                // Gate resolved — drain the decision (single gate per turn).
+                approvalFlow.value = null
+                _state.update {
+                    it.copy(
+                        approvalPending = false,
+                        approving = false,
+                        pendingPr = null,
+                        prInfo = event.info,
+                        typing = false,
+                        active = false,
+                        workingStep = "",
+                    )
+                }
+                AiTurnService.stop(appContext)
+            }
+
+            is TurnEvent.PullRequestDeclined -> {
+                approvalFlow.value = null
+                _state.update {
+                    it.copy(
+                        approvalPending = false,
+                        approving = false,
+                        pendingPr = null,
+                        active = false,
+                        typing = false,
+                        autoFixActive = false,
+                        workingStep = "",
+                        snackbar = AiTurnSnackbar.Declined,
+                    )
+                }
+                AiTurnService.stop(appContext)
+            }
 
             is TurnEvent.CiStatus ->
                 _state.update { it.copy(ciStatus = event.run) }
@@ -302,6 +439,7 @@ class AiTurnCoordinator @Inject constructor(
             is TurnEvent.AutoFixProgress -> handleAutoFixProgress(event.event)
 
             is TurnEvent.Error -> {
+                approvalFlow.value = null
                 val pendingId = _state.value.pendingWriteMessageId
                 if (pendingId != null) {
                     chatRepository.markWrite(pendingId, MessageStatus.REJECTED, null)
@@ -313,6 +451,7 @@ class AiTurnCoordinator @Inject constructor(
                         approving = false,
                         liveChange = null,
                         pendingWriteMessageId = null,
+                        pendingPr = null,
                         error = event.error,
                         canRetry = lastUserInput != null,
                         active = false,
@@ -437,12 +576,20 @@ data class AiTurnLiveState(
     val approving: Boolean = false,
     val pendingWriteMessageId: Long? = null,
     val liveChange: PendingChange? = null,
+    /** Model-proposed PR awaiting the user's Create/Decline decision. */
+    val pendingPr: PullRequestProposal? = null,
     val treeTruncated: Boolean = false,
     val error: AppError? = null,
     val canRetry: Boolean = false,
     val prInfo: PullRequestInfo? = null,
     val ciStatus: WorkflowRunInfo? = null,
     val snackbar: AiTurnSnackbar? = null,
+)
+
+/** A PR the model proposed; shown as a confirmation card before creation. */
+data class PullRequestProposal(
+    val title: String,
+    val body: String,
 )
 
 sealed interface AiTurnSnackbar {

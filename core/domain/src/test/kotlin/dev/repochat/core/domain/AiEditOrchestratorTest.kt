@@ -105,6 +105,68 @@ class AiEditOrchestratorTest {
     }
 
     @Test
+    fun `approved create_pull_request opens the PR and ends the turn`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"create_pull_request","title":"feat: from agent","body":"review please"}""",
+                )
+            )
+        )
+        val github = FakeGithubService()
+        val chat = FakeChatRepository()
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val approval = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
+
+        val collected = mutableListOf<TurnEvent>()
+        val job = launch {
+            orchestrator.runTurn(request(), approval).collect { event ->
+                collected += event
+                if (event is TurnEvent.ProposePullRequest) approval.emit(true)
+            }
+        }
+        job.join()
+
+        // The PR was actually opened on the working branch into the default branch.
+        assertEquals("ai-chat/testsess1", github.lastPrArgs?.first)
+        assertEquals("main", github.lastPrArgs?.second)
+        assertEquals("feat: from agent", github.lastPrArgs?.third)
+        assertTrue(collected.any { it is TurnEvent.PullRequestCreated })
+        // The user sees the PR URL as a stored chat note.
+        assertTrue(chat.stored.any { it.text.orEmpty().contains("https://github.com/acme/demo/pull/1") })
+    }
+
+    @Test
+    fun `declined create_pull_request opens nothing`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"create_pull_request","title":"spam","body":"click me"}""",
+                )
+            )
+        )
+        val github = FakeGithubService()
+        val chat = FakeChatRepository()
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val approval = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
+
+        val collected = mutableListOf<TurnEvent>()
+        val job = launch {
+            orchestrator.runTurn(request(), approval).collect { event ->
+                collected += event
+                if (event is TurnEvent.ProposePullRequest) approval.emit(false)
+            }
+        }
+        job.join()
+
+        assertNull(github.lastPr)
+        assertNull(github.lastPrArgs)
+        assertTrue(collected.any { it is TurnEvent.PullRequestDeclined })
+        // Honest decline note stored in the conversation.
+        assertTrue(chat.stored.any { it.text.orEmpty().contains("declined", ignoreCase = true) })
+    }
+
+    @Test
     fun `missing model name surfaces a configuration error`() = runTest {
         val orchestrator = AiEditOrchestrator(
             FakeLlmService(), FakeGithubService(), FakeChatRepository(),
@@ -193,23 +255,30 @@ class AiEditOrchestratorTest {
     }
 
     @Test
-    fun `create_pull_request opens PR on working branch then replies`() = runTest {
+    fun `pre-armed approval (autonomous mode) auto-creates the PR and ends the turn`() = runTest {
         val ollama = FakeLlmService(
             ArrayDeque(
                 listOf(
                     """{"action":"create_pull_request","title":"AI fixes","body":"please review"}""",
-                    """{"action":"reply","message":"PR is up: https://github.com/acme/demo/pull/1"}""",
                 ),
             ),
         )
         val github = FakeGithubService()
-        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
-        val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+        val chat = FakeChatRepository()
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        // AutoFixLoop semantics: approval is pre-armed with replay so the
+        // unattended loop is never blocked on a human decision.
+        val approval = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
+        approval.tryEmit(true)
+
+        val events = orchestrator.runTurn(request(), approval).toList()
 
         assertEquals(Triple("ai-chat/testsess1", "main", "AI fixes"), github.lastPrArgs)
         assertTrue(events.any { it is TurnEvent.PullRequestCreated })
-        assertTrue(events.any { it is TurnEvent.Reply && it.text.contains("PR is up") })
-        assertTrue(ollama.lastMessages.any { it.content.contains("PULL REQUEST CREATED") })
+        // Turn is terminal after the gate: the app itself stores the PR URL…
+        assertTrue(chat.stored.any { it.text.orEmpty().contains("pull/1") })
+        // …and the model is not called again to paraphrase the URL.
+        assertEquals(1, ollama.callCount)
     }
 
     @Test

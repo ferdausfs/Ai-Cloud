@@ -31,6 +31,13 @@ sealed class AppError(
     /** Local configuration problem (e.g. no model name set). */
     class Configuration(message: String) : AppError(message)
 
+    /**
+     * Another AI turn is already running (in a different conversation) — the
+     * app supports one in-flight turn at a time. Surfaced instead of silently
+     * dropping the user's message (audit finding BUG-101).
+     */
+    class TurnBusy(val where: String, message: String) : AppError(message)
+
     class Api(val provider: Provider, val code: Int?, message: String) : AppError(message)
 
     class Network(message: String) : AppError(message)

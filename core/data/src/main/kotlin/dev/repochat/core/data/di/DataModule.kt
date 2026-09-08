@@ -113,6 +113,13 @@ abstract class DataModule {
         fun provideGithubApi(json: Json, settings: SettingsRepository): GithubApi {
             val client = OkHttpClient.Builder()
                 .addInterceptor(GithubAuthInterceptor { settings.cached().githubPat })
+                // Explicit timeouts (audit BUG-206): recursive trees and the
+                // 302-redirected streamed job logs can exceed OkHttp's 10s
+                // defaults on slow links, which surfaced as a misleading
+                // "No network connection" error. Match the LLM clients.
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             return Retrofit.Builder()
                 .baseUrl("https://api.github.com/")
