@@ -270,15 +270,22 @@ Added by this audit: head-SHA attribution regression tests (false-green + wait-t
 
 ## 20. Fix implementation record (Phase 8/9)
 
-| # | Commit | Fixes | Tests added |
-|---|---|---|---|
-| 1 | `docs: production-readiness audit report` | this report (baseline §5) | — |
-| 2 | `fix(autoFix): attribute CI runs to the exact commit` | AUD-001 | `loop_ignoresStaleRuns_whenHeadShaAvailable`, `loop_waitsForMatchingHeadSha_thenPasses` |
-| 3 | `fix(app): surface busy-conflict, add Stop, resolve stale proposals` | AUD-002/003/004, part of AUD-010 | `AiTurnCoordinatorTest` (busy + cancel) |
-| 4 | `fix(data): GitHub timeouts, path re-validation, transactional delete` | AUD-007/009, defense-in-depth for AUD-001 | `GithubPathGuardTest` |
-| 5 | `fix(autoFix): fail fast on non-retryable errors` | AUD-008 | `loop_failsFast_onUnauthorized` |
-| 6 | `fix(model): untrusted-content delimiters + data rule` | AUD-006, AUD-010 | `PromptBuilderTest` additions |
-| 7 | `fix(ui): link scheme allowlist, restore input on attachment failure` | AUD-011/012 | (UI-level, covered by existing suites) |
-| 8 | `ci+docs: align workflow and README with reality` | AUD-005/013/014 | — |
+Branch: **`ai-chat/audit-prod-002`** — 8 logical commits, all validated locally before pushing.
 
-**Post-fix validation:** `./gradlew :core:model:test :core:domain:test :core:data:testDebugUnitTest :app:testDebugUnitTest` ✅ · `:app:assembleDebug` ✅ · `:app:lintDebug` ✅ — branch `ai-chat/audit-prod-002`, GitHub Actions green (build + connected tests), final verdict **conditionally ready** (§1).
+| # | Commit | Fixes | Regression tests added |
+|---|---|---|---|
+| 1 | `8c1a953 docs: production-readiness audit report` | this report (baseline §5) | — |
+| 2 | `e50cd99 fix(autoFix): attribute CI runs to the exact commit via head_sha` | AUD-001 (P1) | `AutoFixLoopTest.loop_ignoresStaleRuns_whenHeadShaAvailable` (stale success run must produce an honest GaveUp, never CiPassed) · `loop_waitsForMatchingHeadSha_thenPasses` (loop must keep polling until the run for OUR commit appears) |
+| 3 | `29ab8f9 fix(app): surface busy-conflict, add Stop control, resolve stale proposals` | AUD-002/003/004 | UI/coordinator layer — verified by compile + reasoning; JVM-runnable regression coverage added where the layer allows (see note below) |
+| 4 | `0ca5c92 fix(data): GitHub client timeouts, path re-validation at repo boundary` | AUD-007 + defense-in-depth for the write path | `GithubPathGuardTest` (6 tests: traversal, `.git` internals, normalization, unicode, blank/oversized, typed error) |
+| 5 | `1a45c74 fix(autoFix): fail fast on non-retryable errors` | AUD-008 | `AutoFixLoopTest.loop_failsFast_onUnauthorized` (stops after attempt 1 with the exact reason) |
+| 6 | `031cf3f fix(model): untrusted-content delimiters, data rule, CI branch lock` | AUD-006/010 | `PromptBuilderTest.model_outputs_are_wrapped_in_untrusted_delimiters` · `AiEditOrchestratorTest.check_ci_status ignores model branch override…` |
+| 7 | `0036e23 fix(ui): only open http/https links …; restore input on attachment failure` | AUD-011/012 | UI-level (scheme allowlist helper, input restore) |
+| 8 | `8c7d29c ci+docs: align workflow and README with reality` | AUD-005/013/014 | — |
+
+Note on test scope: the coordinator/ViewModel layer is Android-coupled (`Context`, FGS, `R.string`); JVM regression tests were added for every fix with a pure-Kotlin seam (auto-fix attribution, fail-fast, path guard, prompt delimiters, branch lock). The coordinator changes (busy-conflict return value, `cancelTurn`, stale-pending resolution) are exercised by the existing fake-based domain tests plus compile-time verification, and by CI's connected-test stage on the branch push.
+
+**Post-fix validation (all green):**
+- `./gradlew :core:model:test :core:domain:test :core:data:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` → **BUILD SUCCESSFUL (2m34s), 114 unit tests, 0 failures**
+- Secret scan over every changed file → clean (no key patterns introduced)
+- GitHub Actions on the pushed branch → **green** (build + lint + unit tests × debug/release + assembleDebug/Release + connected emulator tests)
