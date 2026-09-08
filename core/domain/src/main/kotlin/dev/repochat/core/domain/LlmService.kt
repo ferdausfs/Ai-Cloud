@@ -25,6 +25,11 @@ interface LlmService {
     /** Trivial ping against one connection (Settings "Test"). */
     suspend fun test(connection: ServiceConnection): String
 
-    /** Live model ids; empty when listing is unavailable. */
+    /**
+     * Live model ids for one connection. Throws typed [dev.repochat.core.model.AppError]s
+     * (Unauthorized / RateLimited / Network / Configuration) so callers can
+     * explain WHY the list is unavailable; an empty return means the provider
+     * genuinely listed no models.
+     */
     suspend fun listModels(connection: ServiceConnection): List<String>
 }

@@ -103,6 +103,11 @@ class AiEditOrchestrator @Inject constructor(
         val userImages = attachedImageB64
             ?.takeIf { visionSupported && it.isNotBlank() }
             ?.let { listOf(it) }
+        val userImageMimes = userImages?.let {
+            listOf(
+                attachment?.mimeType?.takeIf { m -> m.startsWith("image/") } ?: "image/jpeg",
+            )
+        }
 
         var messages = buildList {
             add(OllamaMessage(OllamaRole.SYSTEM, PromptBuilder.system()))
@@ -119,6 +124,7 @@ class AiEditOrchestrator @Inject constructor(
                         entryCount = tree.entries.size,
                     ),
                     images = userImages,
+                    imageMimeTypes = userImageMimes,
                 )
             )
         }
@@ -303,6 +309,11 @@ class AiEditOrchestrator @Inject constructor(
         val userImages = attachedImageB64
             ?.takeIf { visionSupported && it.isNotBlank() }
             ?.let { listOf(it) }
+        val userImageMimes = userImages?.let {
+            listOf(
+                attachment?.mimeType?.takeIf { m -> m.startsWith("image/") } ?: "image/jpeg",
+            )
+        }
 
         val messages = PromptBuilder.cap(
             buildList {
@@ -313,6 +324,7 @@ class AiEditOrchestrator @Inject constructor(
                         role = OllamaRole.USER,
                         content = userContent,
                         images = userImages,
+                        imageMimeTypes = userImageMimes,
                     ),
                 )
             },

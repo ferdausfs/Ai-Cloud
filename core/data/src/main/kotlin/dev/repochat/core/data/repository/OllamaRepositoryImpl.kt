@@ -23,19 +23,20 @@ class OllamaRepositoryImpl @Inject constructor(
         mapHttpErrors(AppError.Provider.OLLAMA) { api.version() }.version
             ?: "unknown"
 
+    /**
+     * Live Ollama Cloud model ids from `GET /api/tags`. Throws typed
+     * [AppError]s (Unauthorized / RateLimited / Network) so the UI can show
+     * WHY the list is empty instead of a generic failure.
+     */
     override suspend fun listModels(apiKeyOverride: String?): List<String> {
-        return try {
-            val dto = OllamaKeyOverride.withKeySuspend(apiKeyOverride) {
-                mapHttpErrors(AppError.Provider.OLLAMA) { api.tags() }
-            }
-            dto.models
-                .map { m -> m.name.ifBlank { m.model.orEmpty() }.trim() }
-                .filter { it.isNotEmpty() }
-                .distinct()
-                .sorted()
-        } catch (_: Exception) {
-            emptyList()
+        val dto = OllamaKeyOverride.withKeySuspend(apiKeyOverride) {
+            mapHttpErrors(AppError.Provider.OLLAMA) { api.tags() }
         }
+        return dto.models
+            .map { m -> m.name.ifBlank { m.model.orEmpty() }.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
     }
 
     override suspend fun chat(
