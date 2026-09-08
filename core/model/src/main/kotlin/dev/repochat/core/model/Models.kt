@@ -283,8 +283,12 @@ sealed interface TurnEvent {
     data class ProposeWrite(val messageId: Long, val change: PendingChange) : TurnEvent
     data class WriteCommitted(val messageId: Long, val change: PendingChange) : TurnEvent
     data class WriteDeclined(val messageId: Long, val change: PendingChange) : TurnEvent
-    /** Model created a pull request mid-conversation. */
+    /** Model wants to open a PR; the app waits for explicit user approval. */
+    data class ProposePullRequest(val title: String, val body: String) : TurnEvent
+    /** Model-created pull request (user approved the gate). */
     data class PullRequestCreated(val info: PullRequestInfo) : TurnEvent
+    /** User declined the model's PR proposal — nothing was opened. */
+    data class PullRequestDeclined(val title: String) : TurnEvent
     /** Latest Actions run for the working branch (after check_ci_status). */
     data class CiStatus(val run: WorkflowRunInfo?) : TurnEvent
     /** Auto-fix loop progress (opt-in "fix until CI green"). */

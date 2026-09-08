@@ -2,6 +2,7 @@ package dev.repochat.core.domain
 
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.AutoFixEvent
+import dev.repochat.core.model.CiSensitivePaths
 import dev.repochat.core.model.TurnEvent
 import dev.repochat.core.model.TurnRequest
 import dev.repochat.core.model.WorkflowJobInfo
@@ -84,13 +85,30 @@ class AutoFixLoop @Inject constructor(
             var workingBranch: String? = request.workingBranch
             var turnError: AppError? = null
             var userDeclined = false
+            var ciGuardDeclined = false
 
             turnRunner.runTurn(attemptRequest, approval).collect { event ->
                 when (event) {
                     is TurnEvent.ProposeWrite -> {
                         send(event)
-                        // Re-arm for any subsequent write in the same turn.
-                        approval.tryEmit(true)
+                        if (CiSensitivePaths.isCiSensitive(event.change.path)) {
+                            // Audit SEC-207: never auto-approve writes to CI or
+                            // build configuration in unattended mode. Decline so
+                            // the turn ends honestly and the user can review the
+                            // proposed diff in a normal (gated) chat turn.
+                            val guardNote =
+                                "Auto-fix declined a change to `${event.change.path}` on its own: " +
+                                    "that path configures CI/build behavior, and auto-fix never " +
+                                    "commits those without explicit review. Open a normal chat " +
+                                    "turn and approve the diff there if you want it."
+                            postStatus(request, guardNote)
+                            send(TurnEvent.Reply(guardNote))
+                            ciGuardDeclined = true
+                            approval.tryEmit(false)
+                        } else {
+                            // Re-arm for any subsequent write in the same turn.
+                            approval.tryEmit(true)
+                        }
                     }
                     is TurnEvent.WriteCommitted -> {
                         committedSummary = "${event.change.path}: ${event.change.commitMessage}"
@@ -119,7 +137,9 @@ class AutoFixLoop @Inject constructor(
                     is TurnEvent.Working,
                     is TurnEvent.TreeReady,
                     is TurnEvent.ReadingFile,
+                    is TurnEvent.ProposePullRequest,
                     is TurnEvent.PullRequestCreated,
+                    is TurnEvent.PullRequestDeclined,
                     is TurnEvent.CiStatus,
                     is TurnEvent.ProviderNote,
                     is TurnEvent.AutoFixProgress,
@@ -128,7 +148,12 @@ class AutoFixLoop @Inject constructor(
             }
 
             if (userDeclined) {
-                val msg = "Auto-fix stopped — a change was declined."
+                val msg = if (ciGuardDeclined) {
+                    "Auto-fix stopped — a CI/build configuration change was proposed and " +
+                        "auto-fix will not auto-commit those. Review it manually."
+                } else {
+                    "Auto-fix stopped — a change was declined."
+                }
                 postStatus(request, msg)
                 send(
                     TurnEvent.AutoFixProgress(

@@ -5,6 +5,7 @@ name: Android CI
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -162,10 +163,89 @@ jobs:
   notify-failure:
     name: Notify on Failure
     if: failure()
-    needs: [build, connected-tests, dependency-review]
+    needs: [build, connected-tests, dependency-review, release-on-tag]
     runs-on: ubuntu-latest
     steps:
       - name: Report failure
         run: |
           echo "::warning::Android CI failed. Inspect the failed job and uploaded reports."
           echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+  # Tag releases (audit addition): on v* tags, package the release APK and
+  # publish a GitHub Release. Signs with the RELEASE_* secrets when all four
+  # exist; otherwise signs with a throwaway debug key (filename clearly
+  # suffixed -debugsigned) so the APK is installable for sideloading — this
+  # path is for personal distribution, NOT the Play Store.
+  release-on-tag:
+    name: GitHub Release (tags)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build]
+    if: >
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble release APK
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 || '' }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD || '' }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || '' }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" || -n "$RELEASE_STORE_PASSWORD" || -n "$RELEASE_KEY_ALIAS" || -n "$RELEASE_KEY_PASSWORD" ]]; then
+            if [[ -z "$RELEASE_KEYSTORE_BASE64" || -z "$RELEASE_STORE_PASSWORD" || -z "$RELEASE_KEY_ALIAS" || -z "$RELEASE_KEY_PASSWORD" ]]; then
+              echo "::error::Release signing is incomplete. Configure all four RELEASE_* signing secrets."
+              exit 1
+            fi
+            keystore="$RUNNER_TEMP/release-signing.jks"
+            umask 077
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            export RELEASE_STORE_FILE="$keystore"
+          fi
+          bash ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Fallback-sign with a throwaway debug key (no secrets configured)
+        if: env.RELEASE_KEYSTORE_BASE64 == ''
+        run: |
+          set -euo pipefail
+          SDK="$ANDROID_HOME"
+          [ -d "$SDK" ] || SDK="/usr/local/lib/android/sdk"
+          BT=$(ls -d "$SDK"/build-tools/*/ | sort | tail -n 1)
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/debug.keystore" \
+            -alias repochat -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass repochat -keypass repochat -dname "CN=RepoChat Debug, O=RepoChat, C=US" >/dev/null 2>&1
+          APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          [ -f "$APK" ] || APK=app/build/outputs/apk/release/app-release.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/debug.keystore" \
+            --ks-pass pass:repochat --key-pass pass:repochat \
+            --out "app/build/outputs/apk/release/app-release-debugsigned.apk" "$APK"
+          rm -f "$APK"
+
+      - name: Publish GitHub Release with the APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/app-release*.apk | head -n 1)
+          NAME="repochat-${GITHUB_REF_NAME}.apk"
+          mv "$APK" "$NAME"
+          gh release create "${GITHUB_REF_NAME}" "$NAME" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag

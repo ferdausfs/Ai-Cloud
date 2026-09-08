@@ -148,6 +148,42 @@ OpenAI-shaped endpoint is a preset, not a rewrite. UI → ViewModel → UseCase 
 The app itself still never writes to `main` — AI commits always land on
 `ai-chat/<session-id>` working branches.
 
+## Release APK & signing
+
+Every working-branch CI run validates **and uploads** both a debug APK and a
+release APK (`app-release-apk` artifact). Without signing secrets the release
+APK is **unsigned** — sign it before installing, or configure signing:
+
+| Secret | Value |
+|---|---|
+| `RELEASE_KEYSTORE_BASE64` | base64 of your keystore file (`base64 -w0 release.jks`) |
+| `RELEASE_STORE_PASSWORD` | keystore password |
+| `RELEASE_KEY_ALIAS` | key alias |
+| `RELEASE_KEY_PASSWORD` | key password |
+
+With all four set, CI signs the release APK on every non-PR build.
+
+**Tag releases:** pushing a `v*` tag (e.g. `v1.0.1`) runs the
+`GitHub Release (tags)` job — it builds the release APK and publishes a
+GitHub Release with it attached. Without the secrets above it is signed with
+a throwaway debug key and clearly suffixed `-debugsigned` (fine for
+sideloading; **not** for Play distribution). Generate a real keystore with:
+
+```
+keytool -genkeypair -v -keystore release.jks -alias repochat \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+## Production-readiness audit
+
+`AUDIT_REPORT.md` contains the full evidence-based audit (architecture map,
+bug/security/agent-safety findings with severity + regression tests, DevOps
+and testing gaps, roadmap). Headline fixes already merged from it: the
+foreign-turn send guard, turn cancellation, the pull-request approval gate,
+the AutoFixLoop CI-path guard, notification permission request, safe-URL
+allowlist for model links, and the least-privilege CI permissions + release
+pipeline described above.
+
 ## Branch safety notes
 
 - The app **never** omits the `branch` field on content writes, so commits can
@@ -178,9 +214,16 @@ send path runs `AutoFixLoop` under the same foreground service:
 3. On failure: fetch the failed job's real log (tail ~8k chars), re-prompt the model, commit again
 4. Stop on green, or after the configured max attempts (default 5) with an honest summary
 
+**Safety guard:** auto-fix never auto-commits changes to CI/build
+configuration (`.github/**`, Gradle scripts, `gradlew`, keystores,
+`suppression.xml`). Those are declined with an explanation so you can review
+the diff in a normal, gated chat turn instead — an injected instruction
+cannot turn the unattended loop into a CI-code execution path.
+
 Never claims success it didn't achieve — CI is the source of truth. Progress
 is written as chat bubbles and shown on the FGS notification
-(`Attempt 2/5 — CI failed, fixing…`).
+(`Attempt 2/5 — CI failed, fixing…`). You can always stop the loop with the
+✕ button in the chat top bar.
 
 ## Troubleshooting
 

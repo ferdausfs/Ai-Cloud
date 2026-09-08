@@ -81,9 +81,11 @@ fun MarkdownProse(
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
                             onUrl = { url ->
-                                try {
-                                    uriHandler.openUri(url)
-                                } catch (_: Exception) {
+                                if (isSafeBrowseUrl(url)) {
+                                    try {
+                                        uriHandler.openUri(url)
+                                    } catch (_: Exception) {
+                                    }
                                 }
                             },
                         )
@@ -103,9 +105,11 @@ fun MarkdownProse(
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 1.dp),
                             onUrl = { url ->
-                                try {
-                                    uriHandler.openUri(url)
-                                } catch (_: Exception) {
+                                if (isSafeBrowseUrl(url)) {
+                                    try {
+                                        uriHandler.openUri(url)
+                                    } catch (_: Exception) {
+                                    }
                                 }
                             },
                         )
@@ -125,9 +129,11 @@ fun MarkdownProse(
                             style = bodyStyle,
                             modifier = Modifier.padding(vertical = 2.dp),
                             onUrl = { url ->
-                                try {
-                                    uriHandler.openUri(url)
-                                } catch (_: Exception) {
+                                if (isSafeBrowseUrl(url)) {
+                                    try {
+                                        uriHandler.openUri(url)
+                                    } catch (_: Exception) {
+                                    }
                                 }
                             },
                         )

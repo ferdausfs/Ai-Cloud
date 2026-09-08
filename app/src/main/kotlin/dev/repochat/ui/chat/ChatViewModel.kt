@@ -62,6 +62,8 @@ data class ChatUiState(
     val approving: Boolean = false,
     val pendingWriteMessageId: Long? = null,
     val liveChange: PendingChange? = null,
+    /** Model-proposed PR awaiting the user's Create/Decline decision. */
+    val pendingPr: dev.repochat.turn.PullRequestProposal? = null,
     val treeTruncated: Boolean = false,
     val error: AppError? = null,
     val canRetry: Boolean = false,
@@ -78,6 +80,8 @@ data class ChatUiState(
     val llmProviders: List<ServiceConnection> = emptyList(),
     val activeProviderId: String? = null,
     val activeProviderLabel: String = "",
+    /** An AI turn is running in a DIFFERENT conversation (send is blocked). */
+    val turnBusyElsewhere: Boolean = false,
 )
 
 /**
@@ -213,6 +217,14 @@ class ChatViewModel @Inject constructor(
             turnCoordinator.state.collect { live ->
                 val bound = repoKey
                 if (bound.isNotEmpty() && live.repoKey.isNotEmpty() && live.repoKey != bound) {
+                    // Foreign conversation's turn: only mirror the busy flag so
+                    // the send path can block with feedback (BUG-101).
+                    _uiState.update {
+                        it.copy(
+                            turnBusyElsewhere = live.active || live.typing ||
+                                live.approvalPending || live.approving,
+                        )
+                    }
                     return@collect
                 }
                 _uiState.update { ui ->
@@ -225,6 +237,7 @@ class ChatViewModel @Inject constructor(
                         approving = if (same) live.approving else ui.approving,
                         pendingWriteMessageId = if (same) live.pendingWriteMessageId else ui.pendingWriteMessageId,
                         liveChange = if (same) live.liveChange else ui.liveChange,
+                        pendingPr = if (same) live.pendingPr else ui.pendingPr,
                         treeTruncated = if (same) (live.treeTruncated || ui.treeTruncated) else ui.treeTruncated,
                         error = if (same) live.error else ui.error,
                         canRetry = if (same) live.canRetry else ui.canRetry,
@@ -233,6 +246,7 @@ class ChatViewModel @Inject constructor(
                         autoFixActive = if (same) live.autoFixActive else ui.autoFixActive,
                         autoFixAttempt = if (same) live.autoFixAttempt else ui.autoFixAttempt,
                         autoFixMaxAttempts = if (same) live.autoFixMaxAttempts else ui.autoFixMaxAttempts,
+                        turnBusyElsewhere = false,
                     )
                 }
                 live.snackbar?.let { snack ->
@@ -256,7 +270,7 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(autoFixUntilCiGreen = enabled) }
     }
 
-    fun send(text: String, attachment: ChatAttachment? = null) =
+    fun send(text: String, attachment: ChatAttachment? = null): Boolean =
         sendInternal(text, attachment, resend = false)
 
     fun retry() {
@@ -270,17 +284,53 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun cancelTurn() = turnCoordinator.cancelTurn()
+
+    /** Shown once when a send is blocked by a foreign in-flight turn. */
+    fun notifyTurnBusyElsewhere() {
+        val live = turnCoordinator.state.value
+        if (!live.active && !live.approvalPending && !live.approving) return
+        val where = live.repo.ifBlank { live.repoKey }
+        _uiState.update {
+            if (it.error is AppError.TurnBusy) it
+            else it.copy(
+                error = AppError.TurnBusy(
+                    where = where.ifBlank { "another chat" },
+                    message = "Busy: an AI turn is already running.",
+                ),
+            )
+        }
+    }
+
     private fun sendInternal(
         text: String,
         attachment: ChatAttachment?,
         resend: Boolean,
         autoFixOverride: Boolean? = null,
-    ) {
+    ): Boolean {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() && attachment == null) return
-        val session = _uiState.value.session ?: return
+        if (trimmed.isEmpty() && attachment == null) return false
+        val session = _uiState.value.session ?: return false
         val state = _uiState.value
-        if (state.typing || state.approvalPending || state.approving) return
+        if (state.typing || state.approvalPending || state.approving) return false
+
+        // BUG-101 guard: one in-flight turn app-wide. A foreign busy turn must
+        // block BEFORE the message is persisted, and the user must be told.
+        if (state.turnBusyElsewhere) {
+            notifyTurnBusyElsewhere()
+            return false
+        }
+        if (!dev.repochat.core.domain.TurnGate.canStartTurn(
+                currentRepoKey = repoKey,
+                liveRepoKey = turnCoordinator.state.value.repoKey,
+                liveActive = turnCoordinator.state.value.let {
+                    it.active || it.approvalPending || it.approving
+                },
+            )
+        ) {
+            notifyTurnBusyElsewhere()
+            return false
+        }
 
         val displayText = buildString {
             if (attachment != null) {
@@ -322,8 +372,15 @@ class ChatViewModel @Inject constructor(
                 preferredConnectionId = _uiState.value.activeProviderId,
             )
             // Runs in the application-scoped coordinator + FGS — not viewModelScope.
-            turnCoordinator.startTurn(request)
+            // A false return here means the slot was taken between the guard
+            // above and this launch (extremely narrow). The bubble is kept
+            // (history is append-only) but the user is told to resend.
+            if (!turnCoordinator.startTurn(request)) {
+                _uiState.update { it.copy(error = null) }
+                notifyTurnBusyElsewhere()
+            }
         }
+        return true
     }
 
     fun approveChange() = turnCoordinator.approveChange()

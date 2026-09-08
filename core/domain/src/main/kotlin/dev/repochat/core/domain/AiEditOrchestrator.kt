@@ -32,7 +32,9 @@ import kotlinx.coroutines.flow.flow
  *     contents back into the context and loop.
  *  4. On write_file, suspend until the user approves or rejects via
  *     [approval]; only an approval triggers the GitHub commit.
- *  5. On reply, store and emit the message.
+ *  5. On create_pull_request, likewise suspend for the user's decision; the
+ *     app shows the PR URL itself when approved (turn ends after the gate).
+ *  6. On reply, store and emit the message.
  */
 @Singleton
 class AiEditOrchestrator @Inject constructor(
@@ -207,21 +209,40 @@ class AiEditOrchestrator @Inject constructor(
                 }
 
                 is AiAction.CreatePullRequest -> {
-                    emit(TurnEvent.Working("Opening pull request"))
-                    val info = github.createPullRequest(
-                        owner = request.owner,
-                        repo = request.repo,
-                        head = branch,
-                        base = request.defaultBranch,
-                        title = action.title,
-                        body = action.body,
-                    )
-                    emit(TurnEvent.PullRequestCreated(info))
-                    val context = "PULL REQUEST CREATED - #${info.number} \"${info.title}\"\n" +
-                        "URL: ${info.htmlUrl}\n" +
-                        "Head: $branch → base: ${request.defaultBranch}\n" +
-                        "Tell the user the PR is ready and share the URL. Merging stays a manual step."
-                    messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
+                    // PR creation is a visible write to the user's repository,
+                    // so it sits behind the same human approval gate as
+                    // write_file (audit BUG-202). Suspends until the user
+                    // decides; the turn then terminates either way so no
+                    // stale approval can ever leak into a later gate.
+                    emit(TurnEvent.ProposePullRequest(action.title, action.body))
+                    val approved = approval.first()
+                    if (approved) {
+                        emit(TurnEvent.Working("Opening pull request"))
+                        val info = github.createPullRequest(
+                            owner = request.owner,
+                            repo = request.repo,
+                            head = branch,
+                            base = request.defaultBranch,
+                            title = action.title,
+                            body = action.body,
+                        )
+                        chat.appendAiText(
+                            request.repoKey,
+                            request.sessionId,
+                            "Pull request #${info.number} is ready: ${info.title}\n${info.htmlUrl}\n" +
+                                "Merging stays a manual step on GitHub.",
+                        )
+                        emit(TurnEvent.PullRequestCreated(info))
+                    } else {
+                        chat.appendAiText(
+                            request.repoKey,
+                            request.sessionId,
+                            "Pull request proposal declined — nothing was opened. " +
+                                "Ask again if you still want a PR from $branch.",
+                        )
+                        emit(TurnEvent.PullRequestDeclined(action.title))
+                    }
+                    return@flow
                 }
 
                 is AiAction.CheckCiStatus -> {

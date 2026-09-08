@@ -18,6 +18,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -224,7 +225,17 @@ fun ChatScreen(
         !state.typing &&
         !state.approvalPending &&
         !state.approving &&
+        !state.turnBusyElsewhere &&
         (input.isNotBlank() || hasAttachment)
+
+    // Surface (and later clear) the foreign-turn-busy error automatically.
+    LaunchedEffect(state.turnBusyElsewhere) {
+        if (state.turnBusyElsewhere && state.error == null) {
+            viewModel.notifyTurnBusyElsewhere()
+        } else if (!state.turnBusyElsewhere && state.error is AppError.TurnBusy) {
+            viewModel.dismissError()
+        }
+    }
     val workingBranch = session?.workingBranch ?: session?.let { "ai-chat/${it.sessionId}" }
 
     Scaffold(
@@ -369,6 +380,16 @@ fun ChatScreen(
                             }
                         }
                     }
+                    // Audit BUG-201: let the user stop a running / stuck turn.
+                    if ((state.typing || state.autoFixActive) && !state.approving) {
+                        IconButton(onClick = viewModel::cancelTurn) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = stringResource(R.string.chat_stop),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                     Box {
                         IconButton(onClick = { showMenu = true }) {
                             Icon(
@@ -458,6 +479,18 @@ fun ChatScreen(
                             modifier = Modifier.animateItem(),
                         )
                     }
+                    // Audit BUG-202: model-proposed PR awaiting approval.
+                    state.pendingPr?.let { proposal ->
+                        item(key = "pr-proposal") {
+                            PrProposalCard(
+                                proposal = proposal,
+                                baseBranch = session?.defaultBranch ?: defaultBranch,
+                                gateActive = state.approvalPending,
+                                onApprove = viewModel::approveChange,
+                                onDecline = viewModel::rejectChange,
+                            )
+                        }
+                    }
                     if (state.typing) {
                         item(key = "typing") {
                             TypingBubble(step = state.workingStep)
@@ -469,6 +502,7 @@ fun ChatScreen(
             BottomBar(
                 approvalPending = state.approvalPending,
                 approving = state.approving,
+                prApproval = state.pendingPr != null,
                 input = input,
                 onInputChange = { input = it },
                 canSend = canSend,
@@ -504,21 +538,26 @@ fun ChatScreen(
                     val typed = input
                     input = ""
                     if (pending == null) {
-                        viewModel.send(typed)
+                        // Rejected send (e.g. another turn busy): keep the text.
+                        if (!viewModel.send(typed)) input = typed
                     } else {
                         scope.launch {
                             val loaded = withContext(Dispatchers.IO) {
                                 loadAttachment(context, pending)
                             }
                             when (loaded) {
-                                is AttachmentLoad.Ok -> viewModel.send(typed, loaded.attachment)
+                                is AttachmentLoad.Ok -> {
+                                    if (!viewModel.send(typed, loaded.attachment)) input = typed
+                                }
                                 is AttachmentLoad.TooLarge -> {
                                     snackbarHostState.showSnackbar(attachTooLargeText)
                                     viewModel.clearPendingAttachment()
+                                    input = typed
                                 }
                                 is AttachmentLoad.Failed -> {
                                     snackbarHostState.showSnackbar(attachFailedText)
                                     viewModel.clearPendingAttachment()
+                                    input = typed
                                 }
                             }
                         }
@@ -766,6 +805,12 @@ private fun ErrorBanner(
     onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Localized, specific copy for the foreign-turn-busy error (BUG-101).
+    val message = if (error is AppError.TurnBusy) {
+        stringResource(R.string.chat_turn_busy, error.where)
+    } else {
+        error.userMessage
+    }
     Surface(
         color = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -781,7 +826,7 @@ private fun ErrorBanner(
             Icon(Icons.Rounded.ErrorOutline, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Text(
-                text = error.userMessage,
+                text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
@@ -804,10 +849,90 @@ private fun ErrorBanner(
     }
 }
 
+/** Audit BUG-202: confirmation card for a model-proposed pull request. */
+@Composable
+private fun PrProposalCard(
+    proposal: dev.repochat.turn.PullRequestProposal,
+    baseBranch: String,
+    gateActive: Boolean,
+    onApprove: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Rounded.CallMerge,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.chat_pr_proposal_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = proposal.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.chat_pr_proposal_body, baseBranch),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (proposal.body.isNotBlank() && proposal.body != "Changes proposed by RepoChat.") {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = proposal.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 8,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (gateActive) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(onClick = onDecline) {
+                        Text(stringResource(R.string.chat_pr_decline))
+                    }
+                    Button(
+                        onClick = onApprove,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary,
+                        ),
+                    ) {
+                        Text(stringResource(R.string.chat_pr_create))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun BottomBar(
     approvalPending: Boolean,
     approving: Boolean,
+    prApproval: Boolean,
     input: String,
     onInputChange: (String) -> Unit,
     canSend: Boolean,
@@ -845,7 +970,10 @@ private fun BottomBar(
                     ) {
                         Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.chat_reject))
+                        Text(
+                            if (prApproval) stringResource(R.string.chat_pr_decline)
+                            else stringResource(R.string.chat_reject),
+                        )
                     }
                     Button(
                         onClick = onApprove,
@@ -865,8 +993,11 @@ private fun BottomBar(
                         }
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            if (approving) stringResource(R.string.chat_committing)
-                            else stringResource(R.string.chat_approve)
+                            when {
+                                approving -> stringResource(R.string.chat_committing)
+                                prApproval -> stringResource(R.string.chat_pr_create)
+                                else -> stringResource(R.string.chat_approve)
+                            }
                         )
                     }
                 }
