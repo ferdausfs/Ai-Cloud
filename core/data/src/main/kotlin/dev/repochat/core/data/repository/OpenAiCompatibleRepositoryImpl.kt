@@ -73,6 +73,77 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
     }
 
     /**
+     * Streaming variant of [chat] (SSE). [onDelta] receives cumulative text
+     * as chunks arrive — throttled by the caller. Returns the full text.
+     *
+     * Falls back to the blocking path automatically when the provider does
+     * not honor `stream: true` and returns a regular JSON envelope instead.
+     */
+    suspend fun chatStream(
+        connection: ServiceConnection,
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean,
+        onDelta: (String) -> Unit,
+    ): String {
+        val base = connection.baseUrl.trim().trimEnd('/')
+        if (base.isBlank()) {
+            throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no base URL.")
+        }
+        val model = connection.modelName.trim()
+        if (model.isBlank()) {
+            throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no model name.")
+        }
+        val preset = matchOpenAiPreset(base)
+        val url = "$base/chat/completions"
+        val body = OpenAiChatRequestDto(
+            model = model,
+            messages = messages.map {
+                OpenAiMessageDto(role = it.role.wireName, content = messageContent(it))
+            },
+            responseFormat = if (jsonMode && preset.supportsJsonResponseFormat) {
+                OpenAiResponseFormatDto("json_object")
+            } else {
+                null
+            },
+            stream = true,
+        )
+        val stream = mapHttpErrors(AppError.Provider.LLM) {
+            api.chatCompletionsStream(url, body, headersFor(connection, preset.extraHeaders))
+        }
+        stream.use { responseBody ->
+            val full = StringBuilder()
+            val source = responseBody.source()
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                val trimmed = line.trim()
+                if (trimmed.isEmpty() || trimmed.startsWith(":")) continue
+                if (!trimmed.startsWith("data:")) continue
+                val payload = trimmed.removePrefix("data:").trim()
+                if (payload == "[DONE]") break
+                val delta = try {
+                    val element = json.parseToJsonElement(payload)
+                    val choice = (element as? JsonObject)?.get("choices") as? JsonArray
+                    val deltaObj = choice?.firstOrNull() as? JsonObject
+                    (deltaObj?.get("delta") as? JsonObject)
+                        ?.get("content") as? JsonPrimitive
+                } catch (_: Exception) {
+                    null // keep-alive comments / non-JSON lines are ignored
+                }?.content
+                if (!delta.isNullOrEmpty()) {
+                    full.append(delta)
+                    onDelta(full.toString())
+                }
+            }
+            val text = full.toString().trim()
+            if (text.isBlank()) {
+                throw AppError.Api(AppError.Provider.LLM, null, "Provider returned an empty response.")
+            }
+            return text
+        }
+    }
+
+    /**
      * Real-API connection test that does NOT spend tokens: authenticated
      * `GET /models`. 200 proves the endpoint + key; 401/403/429/5xx map to
      * precise, human-readable [AppError]s for the Settings UI.

@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.repochat.R
+import dev.repochat.core.domain.AutoFixLoop
 import dev.repochat.core.domain.ChatRepository
-import dev.repochat.core.domain.SettingsRepository
 import dev.repochat.core.domain.CreatePullRequestUseCase
+import dev.repochat.core.domain.GithubService
+import dev.repochat.core.domain.SettingsRepository
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
@@ -15,12 +17,15 @@ import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.PullRequestInfo
 import dev.repochat.core.model.RepoSession
+import dev.repochat.core.model.RepoSummary
 import dev.repochat.core.model.TurnRequest
+import dev.repochat.core.model.WorkflowJobInfo
 import dev.repochat.core.model.WorkflowRunInfo
 import dev.repochat.turn.AiTurnCoordinator
 import dev.repochat.turn.AiTurnSnackbar
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,6 +63,10 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val typing: Boolean = false,
     val workingStep: String = "",
+    /** Recent agent steps (max 4, oldest first) for the live activity trail. */
+    val stepTrail: List<String> = emptyList(),
+    /** Cumulative streamed reply text while a plain conversational turn runs. */
+    val streamText: String = "",
     val approvalPending: Boolean = false,
     val approving: Boolean = false,
     val pendingWriteMessageId: Long? = null,
@@ -68,8 +77,10 @@ data class ChatUiState(
     val snackbar: SnackbarEvent = SnackbarEvent(),
     val prState: PrState = PrState.None,
     val pendingAttachment: PendingAttachment? = null,
-    /** Latest known Actions run for the working branch (from check_ci_status). */
+    /** Latest known Actions run for the working branch. */
     val ciStatus: WorkflowRunInfo? = null,
+    /** Last observed failed run — drives the in-chat "build failed" banner. */
+    val ciFailure: WorkflowRunInfo? = null,
     /** Opt-in per message: run AutoFixLoop until CI is green (or attempts exhausted). */
     val autoFixUntilCiGreen: Boolean = false,
     val autoFixActive: Boolean = false,
@@ -78,32 +89,52 @@ data class ChatUiState(
     val llmProviders: List<ServiceConnection> = emptyList(),
     val activeProviderId: String? = null,
     val activeProviderLabel: String = "",
+    /** In-chat "attach repo" sheet. */
+    val repoPickerOpen: Boolean = false,
+    val repoOptions: List<RepoSummary> = emptyList(),
+    val repoOptionsLoading: Boolean = false,
+    val repoOptionsError: String? = null,
+    /** In-app CI build sheet (jobs + logs). */
+    val ciSheetOpen: Boolean = false,
+    val ciJobs: List<WorkflowJobInfo> = emptyList(),
+    val ciJobsLoading: Boolean = false,
+    val ciJobsError: String? = null,
+    val selectedJob: WorkflowJobInfo? = null,
+    val jobLog: String? = null,
+    val jobLogLoading: Boolean = false,
+    val jobLogError: String? = null,
 )
 
 /**
  * UI-facing ViewModel. Turn execution is delegated to [AiTurnCoordinator] so
  * work survives Activity/ViewModel teardown (paired with AiTurnService FGS).
  * Chat history still comes from Room — returning to the app shows completed turns.
+ *
+ * Unified chat model: every conversation is a normal agent chat; attaching a
+ * repo context (from Home, Repo detail, or the in-chat sheet) enables the
+ * GitHub tools for subsequent turns. There is no separate "mode" choice.
  */
 @HiltViewModel
+@kotlin.OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val createPullRequest: CreatePullRequestUseCase,
     private val turnCoordinator: AiTurnCoordinator,
     private val settingsRepository: SettingsRepository,
+    private val githubService: GithubService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
-    private var owner: String = ""
-    private var repo: String = ""
-    private var repoKey: String = ""
-    private var defaultBranch: String = ""
-    private var mode: ChatMode = ChatMode.REPO
+    private var boundKey: String = ""
+
+    /** Guards against duplicate start() calls with identical navigation args. */
+    private var lastStartKey: String? = null
 
     private var messageJob: Job? = null
     private var turnObserveJob: Job? = null
+    private var ciProbeJob: Job? = null
     private var snackbarCounter = 0L
 
     init {
@@ -131,69 +162,53 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * @param mode GENERAL or REPO
-     * @param existingRepoKey when reopening a known conversation (esp. general),
-     *   pass the stored `repoKey` so we don't create a duplicate session.
+     * Opens (or binds) the conversation.
+     *  - [repoKey] non-blank → reopen that stored conversation (any kind).
+     *  - else [owner]/[repo] non-blank → repo-pre-attached conversation.
+     *  - else → a fresh unified chat (plain agent; repo attachable in-chat).
+     *
+     * @param mode deprecated — kept for navigation compatibility, ignored.
      */
     fun start(
         owner: String,
         repo: String,
         defaultBranch: String,
-        mode: ChatMode = ChatMode.REPO,
-        existingRepoKey: String = "",
+        repoKey: String = "",
+        mode: String = "REPO",
     ) {
-        val provisionalKey = when {
-            existingRepoKey.isNotBlank() -> existingRepoKey
-            mode == ChatMode.REPO -> "$owner/$repo"
+        val startKey = "$owner|$repo|$defaultBranch|$repoKey"
+        if (startKey == lastStartKey) return
+        lastStartKey = startKey
+
+        val resolvedKey = when {
+            repoKey.isNotBlank() -> repoKey
+            owner.isNotBlank() && repo.isNotBlank() -> "$owner/$repo"
             else -> ""
         }
-        // Same conversation already bound (including a just-created general
-        // session whose key was empty at the first start() call).
-        if (this.mode == mode && this.repoKey.isNotEmpty()) {
-            val sameRepo = mode == ChatMode.REPO && this.repoKey == "$owner/$repo"
-            val sameGeneral = mode == ChatMode.GENERAL && (
-                existingRepoKey.isBlank() || existingRepoKey == this.repoKey
-            )
-            if (sameRepo || sameGeneral) return
-        }
-        if (provisionalKey.isNotEmpty() && provisionalKey == this.repoKey && this.mode == mode) return
-
-        this.owner = owner
-        this.repo = repo
-        this.defaultBranch = defaultBranch
-        this.mode = mode
-        this.repoKey = provisionalKey
+        boundKey = resolvedKey
         _uiState.value = ChatUiState()
 
         messageJob?.cancel()
         turnObserveJob?.cancel()
+        ciProbeJob?.cancel()
 
         messageJob = viewModelScope.launch {
-            val session = when (mode) {
-                ChatMode.REPO -> {
-                    val key = "$owner/$repo"
-                    this@ChatViewModel.repoKey = key
-                    chatRepository.ensureSession(owner, repo, defaultBranch)
-                }
-                ChatMode.GENERAL -> {
-                    if (existingRepoKey.isNotBlank()) {
-                        val existing = chatRepository.getSession(existingRepoKey)
-                        if (existing != null) {
-                            this@ChatViewModel.repoKey = existing.repoKey
-                            existing
-                        } else {
-                            val created = chatRepository.createGeneralSession()
-                            this@ChatViewModel.repoKey = created.repoKey
-                            created
-                        }
-                    } else {
-                        val created = chatRepository.createGeneralSession()
-                        this@ChatViewModel.repoKey = created.repoKey
-                        created
+            val session = if (resolvedKey.isNotBlank()) {
+                chatRepository.getSession(resolvedKey) ?: when {
+                    owner.isNotBlank() && repo.isNotBlank() ->
+                        chatRepository.ensureSession(owner, repo, defaultBranch)
+                    else -> chatRepository.createGeneralSession().let {
+                        // repoKey pointed nowhere — fall back to a fresh chat.
+                        boundKey = it.repoKey
+                        it
                     }
                 }
+            } else {
+                val created = chatRepository.createGeneralSession()
+                boundKey = created.repoKey
+                created
             }
-            val boundKey = session.repoKey
+            if (boundKey.isBlank()) boundKey = session.repoKey
             _uiState.update { it.copy(session = session) }
 
             // Resolve proposals left PENDING by a process death / crash
@@ -217,6 +232,8 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
+            if (!session.isGeneral) refreshCiStatus()
+
             chatRepository.session(boundKey)
                 .filterNotNull()
                 .flatMapLatest { s ->
@@ -232,7 +249,7 @@ class ChatViewModel @Inject constructor(
         // turn that continued while we were backgrounded).
         turnObserveJob = viewModelScope.launch {
             turnCoordinator.state.collect { live ->
-                val bound = repoKey
+                val bound = boundKey
                 if (bound.isNotEmpty() && live.repoKey.isNotEmpty() && live.repoKey != bound) {
                     return@collect
                 }
@@ -242,6 +259,8 @@ class ChatViewModel @Inject constructor(
                     ui.copy(
                         typing = if (same) live.typing else ui.typing,
                         workingStep = if (same) live.workingStep else ui.workingStep,
+                        stepTrail = if (same) live.stepTrail else ui.stepTrail,
+                        streamText = if (same) live.streamText else ui.streamText,
                         approvalPending = if (same) live.approvalPending else ui.approvalPending,
                         approving = if (same) live.approving else ui.approving,
                         pendingWriteMessageId = if (same) live.pendingWriteMessageId else ui.pendingWriteMessageId,
@@ -258,7 +277,11 @@ class ChatViewModel @Inject constructor(
                 }
                 live.snackbar?.let { snack ->
                     when (snack) {
-                        is AiTurnSnackbar.Committed -> showSnackbar(R.string.chat_committed_to, snack.branch)
+                        is AiTurnSnackbar.Committed -> {
+                            showSnackbar(R.string.chat_committed_to, snack.branch)
+                            // A single-turn commit just landed — watch its CI.
+                            if (!turnCoordinator.state.value.autoFixActive) scheduleCiProbes()
+                        }
                         AiTurnSnackbar.Declined -> showSnackbar(R.string.chat_declined)
                     }
                     turnCoordinator.consumeSnackbar()
@@ -266,6 +289,97 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+
+    /* ----------------------- unified repo context ----------------------- */
+
+    /** Attaches (or replaces) the repo context of this conversation. */
+    fun attachRepo(selected: RepoSummary) {
+        val session = _uiState.value.session ?: return
+        closeRepoPicker()
+        viewModelScope.launch {
+            chatRepository.updateRepoContext(
+                repoKey = boundKey.ifBlank { session.repoKey },
+                owner = selected.owner,
+                repo = selected.name,
+                defaultBranch = selected.defaultBranch,
+                isRepo = true,
+            )
+            _uiState.update {
+                it.copy(
+                    session = it.session?.copy(
+                        owner = selected.owner,
+                        repo = selected.name,
+                        defaultBranch = selected.defaultBranch,
+                        mode = ChatMode.REPO,
+                    ),
+                    ciStatus = null,
+                    ciFailure = null,
+                    autoFixUntilCiGreen = it.autoFixUntilCiGreen,
+                )
+            }
+            refreshCiStatus()
+        }
+    }
+
+    /** Detaches the repo context — subsequent turns are plain agent chat. */
+    fun detachRepo() {
+        val session = _uiState.value.session ?: return
+        viewModelScope.launch {
+            chatRepository.updateRepoContext(
+                repoKey = boundKey.ifBlank { session.repoKey },
+                owner = "",
+                repo = "",
+                defaultBranch = "",
+                isRepo = false,
+            )
+            _uiState.update {
+                it.copy(
+                    session = it.session?.copy(
+                        owner = "",
+                        repo = "",
+                        defaultBranch = "",
+                        mode = ChatMode.GENERAL,
+                        workingBranch = null,
+                    ),
+                    ciStatus = null,
+                    ciFailure = null,
+                    autoFixUntilCiGreen = false,
+                )
+            }
+        }
+    }
+
+    fun openRepoPicker() {
+        _uiState.update { it.copy(repoPickerOpen = true, repoOptionsError = null) }
+        if (_uiState.value.repoOptions.isEmpty()) loadRepoOptions()
+    }
+
+    fun closeRepoPicker() = _uiState.update { it.copy(repoPickerOpen = false) }
+
+    fun loadRepoOptions() {
+        if (_uiState.value.repoOptionsLoading) return
+        _uiState.update { it.copy(repoOptionsLoading = true, repoOptionsError = null) }
+        viewModelScope.launch {
+            try {
+                val repos = githubService.listRepos()
+                _uiState.update { it.copy(repoOptions = repos, repoOptionsLoading = false) }
+            } catch (e: AppError) {
+                _uiState.update {
+                    it.copy(repoOptionsLoading = false, repoOptionsError = e.userMessage)
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        repoOptionsLoading = false,
+                        repoOptionsError = e.message?.takeIf { m -> m.isNotBlank() }
+                            ?: "Could not load repositories.",
+                    )
+                }
+            }
+        }
+    }
+
+    /* ------------------------------ sending ----------------------------- */
 
     fun setPendingAttachment(attachment: PendingAttachment?) {
         _uiState.update { it.copy(pendingAttachment = attachment) }
@@ -309,6 +423,7 @@ class ChatViewModel @Inject constructor(
             showSnackbar(R.string.chat_turn_in_progress)
             return
         }
+        val repoBound = !session.isGeneral && session.owner.isNotBlank()
 
         val displayText = buildString {
             if (attachment != null) {
@@ -319,13 +434,14 @@ class ChatViewModel @Inject constructor(
         }.ifBlank { "📎 ${attachment?.displayName.orEmpty()}" }
 
         val userText = trimmed.ifEmpty { displayText }
-        val autoFix = if (mode == ChatMode.GENERAL) {
-            false
-        } else {
+        val autoFix = if (repoBound) {
             autoFixOverride ?: state.autoFixUntilCiGreen
+        } else {
+            false
         }
         turnCoordinator.rememberRetry(userText, attachment, autoFix = autoFix)
         _uiState.update { it.copy(pendingAttachment = null, error = null) }
+        ciProbeJob?.cancel()
 
         viewModelScope.launch {
             if (!resend) {
@@ -334,18 +450,22 @@ class ChatViewModel @Inject constructor(
                 } else {
                     displayText
                 }
-                chatRepository.appendUserText(repoKey, session.sessionId, label)
+                chatRepository.appendUserText(
+                    boundKey.ifBlank { session.repoKey },
+                    session.sessionId,
+                    label,
+                )
             }
             val request = TurnRequest(
-                repoKey = repoKey,
-                owner = owner,
-                repo = repo,
-                defaultBranch = defaultBranch,
+                repoKey = boundKey.ifBlank { session.repoKey },
+                owner = session.owner,
+                repo = session.repo,
+                defaultBranch = session.defaultBranch,
                 workingBranch = session.workingBranch,
                 sessionId = session.sessionId,
                 userText = userText,
                 attachment = attachment,
-                mode = mode,
+                mode = if (repoBound) ChatMode.REPO else ChatMode.GENERAL,
                 autoFixUntilCiGreen = autoFix,
                 preferredConnectionId = _uiState.value.activeProviderId,
             )
@@ -364,7 +484,12 @@ class ChatViewModel @Inject constructor(
 
     fun rejectChange() = turnCoordinator.rejectChange()
 
-    fun cancelTurn() = turnCoordinator.cancelTurn()
+    fun cancelTurn() {
+        ciProbeJob?.cancel()
+        turnCoordinator.cancelTurn()
+    }
+
+    /* --------------------------- pull requests -------------------------- */
 
     fun createPullRequestNow() {
         val session = _uiState.value.session ?: return
@@ -400,10 +525,12 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(prState = PrState.None) }
     }
 
+    /* ------------------------------ housekeeping ------------------------- */
+
     fun clearConversation() {
         val session = _uiState.value.session ?: return
         viewModelScope.launch {
-            chatRepository.clearMessages(repoKey, session.sessionId)
+            chatRepository.clearMessages(boundKey.ifBlank { session.repoKey }, session.sessionId)
         }
     }
 
@@ -422,5 +549,179 @@ class ChatViewModel @Inject constructor(
     private fun showSnackbar(textRes: Int, vararg args: Any) {
         snackbarCounter++
         _uiState.update { it.copy(snackbar = SnackbarEvent(snackbarCounter, textRes, args.toList())) }
+    }
+
+    /* --------------------------- CI build center ------------------------- */
+
+    /** Fetches the latest Actions run for this conversation's branch. */
+    fun refreshCiStatus() {
+        val session = _uiState.value.session ?: return
+        if (session.isGeneral || session.owner.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val branch = session.workingBranch ?: session.defaultBranch
+                val latest = githubService
+                    .listWorkflowRuns(session.owner, session.repo, branch)
+                    .firstOrNull() ?: return@launch
+                _uiState.update { s ->
+                    s.copy(
+                        ciStatus = latest,
+                        ciFailure = if (latest.conclusion == "failure") latest else null,
+                    )
+                }
+            } catch (_: Exception) {
+                // Chip stays as-is; the sheet surfaces errors on explicit load.
+            }
+        }
+    }
+
+    /**
+     * Watches CI after a single-turn commit (no auto-fix loop): probes at
+     * 45s / 2min / 4min. Stops early on a conclusion. Front-ground only —
+     * the in-app sheet always offers a manual refresh too.
+     */
+    private fun scheduleCiProbes() {
+        ciProbeJob?.cancel()
+        ciProbeJob = viewModelScope.launch {
+            for (delayMs in longArrayOf(45_000L, 75_000L, 120_000L)) {
+                delay(delayMs)
+                if (turnCoordinator.state.value.active) return@launch
+                refreshCiStatus()
+                val status = _uiState.value.ciStatus ?: return@launch
+                if (status.conclusion != null) return@launch
+            }
+        }
+    }
+
+    fun dismissCiFailure() = _uiState.update { it.copy(ciFailure = null) }
+
+    fun openCiSheet() {
+        _uiState.update {
+            it.copy(
+                ciSheetOpen = true,
+                ciJobs = emptyList(),
+                ciJobsError = null,
+                selectedJob = null,
+                jobLog = null,
+                jobLogError = null,
+            )
+        }
+        loadCiJobs()
+    }
+
+    fun closeCiSheet() = _uiState.update { it.copy(ciSheetOpen = false) }
+
+    private fun loadCiJobs() {
+        val state = _uiState.value
+        val run = state.ciStatus ?: return
+        val session = state.session ?: return
+        if (state.ciJobsLoading) return
+        _uiState.update { it.copy(ciJobsLoading = true, ciJobsError = null) }
+        viewModelScope.launch {
+            try {
+                val jobs = githubService.listJobsForRun(session.owner, session.repo, run.id)
+                val focus = jobs.firstOrNull { it.conclusion == "failure" }
+                    ?: jobs.firstOrNull { it.conclusion != "success" }
+                    ?: jobs.firstOrNull()
+                _uiState.update {
+                    it.copy(ciJobs = jobs, ciJobsLoading = false, selectedJob = focus)
+                }
+                focus?.let { job -> loadJobLog(job) }
+            } catch (e: AppError) {
+                _uiState.update { it.copy(ciJobsLoading = false, ciJobsError = e.userMessage) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        ciJobsLoading = false,
+                        ciJobsError = e.message?.takeIf { m -> m.isNotBlank() }
+                            ?: "Could not load build jobs.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectJob(job: WorkflowJobInfo) {
+        if (_uiState.value.selectedJob?.id == job.id && _uiState.value.jobLog != null) return
+        _uiState.update { it.copy(selectedJob = job, jobLog = null, jobLogError = null) }
+        loadJobLog(job)
+    }
+
+    private fun loadJobLog(job: WorkflowJobInfo) {
+        val state = _uiState.value
+        val session = state.session ?: return
+        if (state.jobLogLoading) return
+        _uiState.update { it.copy(jobLogLoading = true, jobLogError = null) }
+        viewModelScope.launch {
+            try {
+                val raw = githubService.getJobLogs(session.owner, session.repo, job.id)
+                val tail = AutoFixLoop.truncateTail(raw, LOG_TAIL_CHARS)
+                _uiState.update { it.copy(jobLog = tail, jobLogLoading = false) }
+            } catch (e: AppError) {
+                _uiState.update { it.copy(jobLogLoading = false, jobLogError = e.userMessage) }
+            } catch (_: Exception) {
+                // GitHub packages logs asynchronously right after a run ends.
+                _uiState.update {
+                    it.copy(
+                        jobLogLoading = false,
+                        jobLogError = "Log is not available yet — GitHub archives it " +
+                            "shortly after the run finishes. Try again in a moment.",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * "Fix with AI" from the failure banner / build sheet: pulls the failing
+     * job log and hands it to the agent as an attachment, with auto-fix
+     * until CI green enabled so the loop keeps watch after the fix commit.
+     */
+    fun fixWithAi() {
+        val state = _uiState.value
+        if (state.typing || state.approvalPending || state.approving) return
+        val session = state.session ?: return
+        val failure = state.ciFailure
+            ?: state.ciStatus?.takeIf { it.conclusion == "failure" }
+            ?: return
+        viewModelScope.launch {
+            val logTail = state.jobLog?.takeIf { it.isNotBlank() }
+                ?: fetchFailureLogTail(session, failure)
+            _uiState.update { it.copy(ciSheetOpen = false, ciFailure = null) }
+            setAutoFixUntilCiGreen(true)
+            val branch = session.workingBranch ?: session.defaultBranch
+            sendInternal(
+                text = "The CI build failed on branch `$branch` " +
+                    "(workflow: ${failure.name.ifBlank { "build" }}). " +
+                    "Find the root cause in the repo, fix it, and commit the fix.",
+                attachment = logTail?.let {
+                    ChatAttachment(
+                        displayName = "ci-failure-log.txt",
+                        mimeType = "text/plain",
+                        textContent = it,
+                    )
+                },
+                resend = false,
+            )
+        }
+    }
+
+    private suspend fun fetchFailureLogTail(
+        session: RepoSession,
+        run: WorkflowRunInfo,
+    ): String? = try {
+        val jobs = githubService.listJobsForRun(session.owner, session.repo, run.id)
+        val failed = jobs.firstOrNull { it.conclusion == "failure" }
+            ?: jobs.firstOrNull { it.steps.any { s -> s.conclusion == "failure" } }
+            ?: jobs.firstOrNull() ?: return null
+        val raw = githubService.getJobLogs(session.owner, session.repo, failed.id)
+        AutoFixLoop.truncateTail(raw, LOG_TAIL_CHARS)
+    } catch (_: Exception) {
+        null
+    }
+
+    private companion object {
+        /** Display/attachment cap for job logs — errors live at the tail. */
+        const val LOG_TAIL_CHARS = 16_000
     }
 }

@@ -28,6 +28,19 @@ interface ChatRepository {
     /** Creates a new general (no-repo) conversation. */
     suspend fun createGeneralSession(): RepoSession
 
+    /**
+     * Attach / replace the repo context of a conversation (unified chat —
+     * the user can add a repo at any time; the next turn becomes an agent
+     * turn on that repo). Empty owner detaches — plain conversational turns.
+     */
+    suspend fun updateRepoContext(
+        repoKey: String,
+        owner: String,
+        repo: String,
+        defaultBranch: String,
+        isRepo: Boolean,
+    )
+
     suspend fun updateWorkingBranch(repoKey: String, branch: String)
 
     suspend fun deleteConversation(repoKey: String)

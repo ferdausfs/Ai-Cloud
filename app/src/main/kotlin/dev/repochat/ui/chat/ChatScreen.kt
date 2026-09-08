@@ -43,12 +43,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
@@ -56,6 +60,7 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -63,6 +68,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -112,6 +118,7 @@ import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PullRequestInfo
+import dev.repochat.ui.chat.markdown.MarkdownMessageContent
 import dev.repochat.ui.components.EmptyState
 import dev.repochat.ui.components.InfoChip
 import dev.repochat.ui.components.bounce
@@ -131,7 +138,6 @@ fun ChatScreen(
     owner: String,
     repo: String,
     defaultBranch: String,
-    mode: String = "REPO",
     repoKey: String = "",
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
@@ -143,27 +149,20 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val isGeneral = mode.equals("GENERAL", ignoreCase = true) ||
-        state.session?.isGeneral == true
 
     var input by rememberSaveable { mutableStateOf("") }
     var showBranchInfo by rememberSaveable { mutableStateOf(false) }
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
     var showMenu by rememberSaveable { mutableStateOf(false) }
     var showProviderMenu by rememberSaveable { mutableStateOf(false) }
+    var showRepoMenu by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(owner, repo, defaultBranch, mode, repoKey) {
-        val chatMode = if (mode.equals("GENERAL", ignoreCase = true)) {
-            dev.repochat.core.model.ChatMode.GENERAL
-        } else {
-            dev.repochat.core.model.ChatMode.REPO
-        }
+    LaunchedEffect(owner, repo, defaultBranch, repoKey) {
         viewModel.start(
             owner = owner,
             repo = repo,
             defaultBranch = defaultBranch,
-            mode = chatMode,
-            existingRepoKey = repoKey,
+            repoKey = repoKey,
         )
     }
 
@@ -220,6 +219,9 @@ fun ChatScreen(
     }
 
     val session = state.session
+    // Unified chat: a conversation either has a repo context (agent tools) or
+    // is a plain conversation — attachable/detachable at any time, no modes.
+    val hasRepo = session?.isGeneral == false && session.owner.isNotBlank()
     val hasAttachment = state.pendingAttachment != null
     val canSend = session != null &&
         !state.typing &&
@@ -236,9 +238,10 @@ fun ChatScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val titleText = when {
-                            isGeneral -> session?.displayTitle
-                                ?: stringResource(R.string.chat_general_title)
-                            else -> "$owner/$repo"
+                            hasRepo -> session?.displayTitle?.takeIf { it.isNotBlank() }
+                                ?: "$owner/$repo"
+                            else -> session?.displayTitle
+                                ?: stringResource(R.string.chat_new_title)
                         }
                         with(sharedTransitionScope) {
                             // remember* must run unconditionally (Compose rules).
@@ -256,7 +259,7 @@ fun ChatScreen(
                                 modifier = Modifier
                                     .weight(1f, fill = false)
                                     .then(
-                                        if (!isGeneral && owner.isNotBlank()) {
+                                        if (hasRepo && owner.isNotBlank()) {
                                             Modifier.sharedElement(
                                                 state = sharedState,
                                                 animatedVisibilityScope = animatedVisibilityScope,
@@ -310,7 +313,7 @@ fun ChatScreen(
                                 }
                             }
                         }
-                        if (!isGeneral && workingBranch != null) {
+                        if (hasRepo && workingBranch != null) {
                             Spacer(Modifier.width(8.dp))
                             InfoChip(
                                 text = workingBranch,
@@ -320,7 +323,7 @@ fun ChatScreen(
                                 modifier = Modifier.bounce { showBranchInfo = true },
                             )
                         }
-                        if (!isGeneral) {
+                        if (hasRepo) {
                             state.ciStatus?.let { ci ->
                                 Spacer(Modifier.width(6.dp))
                                 val (icon, container, content) = ciChipColors(ci.conclusion, ci.status)
@@ -329,17 +332,7 @@ fun ChatScreen(
                                     icon = icon,
                                     containerColor = container,
                                     contentColor = content,
-                                    modifier = Modifier.bounce {
-                                        ci.htmlUrl?.let { url ->
-                                            try {
-                                                context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                                )
-                                            } catch (_: Exception) {
-                                                // No browser — ignore.
-                                            }
-                                        }
-                                    },
+                                    modifier = Modifier.bounce { viewModel.openCiSheet() },
                                 )
                             }
                         }
@@ -354,7 +347,7 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    if (!isGeneral && session != null && session.workingBranch != null) {
+                    if (hasRepo && session?.workingBranch != null) {
                         IconButton(
                             onClick = viewModel::createPullRequestNow,
                             enabled = state.prState != PrState.Creating,
@@ -430,7 +423,7 @@ fun ChatScreen(
 
             if (state.messages.isEmpty() && !state.typing) {
                 EmptyChat(
-                    isGeneral = isGeneral,
+                    hasRepo = hasRepo,
                     onSuggestion = { viewModel.send(it) },
                     modifier = Modifier.weight(1f),
                 )
@@ -461,9 +454,76 @@ fun ChatScreen(
                     }
                     if (state.typing) {
                         item(key = "typing") {
-                            TypingBubble(step = state.workingStep)
+                            val visibleStream = state.streamText
+                                .takeIf { it.isNotBlank() && !isLikelyToolJson(it) }
+                            if (visibleStream != null) {
+                                StreamingReplyBubble(
+                                    text = visibleStream,
+                                    step = state.workingStep,
+                                )
+                            } else {
+                                TypingBubble(step = state.workingStep, trail = state.stepTrail)
+                            }
+                        }
+                    } else if (canRegenerate(state.messages)) {
+                        item(key = "regenerate") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                TextButton(onClick = viewModel::retry) {
+                                    Icon(
+                                        Icons.Rounded.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(stringResource(R.string.chat_regenerate))
+                                }
+                            }
                         }
                     }
+                }
+            }
+
+            // Repo context strip (unified chat) — attach / change / detach.
+            if (session != null && !state.typing && !state.approvalPending) {
+                RepoContextStrip(
+                    hasRepo = hasRepo,
+                    label = if (hasRepo) {
+                        "${session.owner}/${session.repo}"
+                    } else {
+                        stringResource(R.string.chat_attach_repo)
+                    },
+                    expanded = showRepoMenu,
+                    onToggleMenu = { showRepoMenu = !showRepoMenu },
+                    onDismissMenu = { showRepoMenu = false },
+                    onChange = {
+                        showRepoMenu = false
+                        viewModel.openRepoPicker()
+                    },
+                    onDetach = {
+                        showRepoMenu = false
+                        viewModel.detachRepo()
+                    },
+                    onAttach = viewModel::openRepoPicker,
+                )
+            }
+
+            // Sticky build-failure banner — the #1 complaint: failures were
+            // invisible. Deep-link straight into the in-app log viewer.
+            AnimatedVisibility(
+                visible = state.ciFailure != null && hasRepo && !state.typing,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                state.ciFailure?.let { failure ->
+                    CiFailureBanner(
+                        run = failure,
+                        onViewLogs = viewModel::openCiSheet,
+                        onFixWithAi = viewModel::fixWithAi,
+                        onDismiss = viewModel::dismissCiFailure,
+                    )
                 }
             }
 
@@ -476,14 +536,14 @@ fun ChatScreen(
                 onInputChange = { input = it },
                 canSend = canSend,
                 pendingAttachment = state.pendingAttachment,
-                showAutoFix = !isGeneral,
+                showAutoFix = hasRepo,
                 autoFixUntilCiGreen = state.autoFixUntilCiGreen,
                 autoFixActive = state.autoFixActive,
                 onAutoFixChange = viewModel::setAutoFixUntilCiGreen,
-                inputHint = if (isGeneral) {
-                    stringResource(R.string.chat_input_hint_general)
-                } else {
+                inputHint = if (hasRepo) {
                     stringResource(R.string.chat_input_hint)
+                } else {
+                    stringResource(R.string.chat_input_hint_general)
                 },
                 onAttach = {
                     pickFile.launch(
@@ -539,6 +599,27 @@ fun ChatScreen(
 
     // ---------- dialogs ----------
 
+    if (state.ciSheetOpen) {
+        CiBuildSheet(
+            state = state,
+            onClose = viewModel::closeCiSheet,
+            onRefresh = {
+                viewModel.refreshCiStatus()
+            },
+            onSelectJob = viewModel::selectJob,
+            onFixWithAi = viewModel::fixWithAi,
+        )
+    }
+
+    if (state.repoPickerOpen) {
+        AttachRepoSheet(
+            state = state,
+            onSelect = viewModel::attachRepo,
+            onClose = viewModel::closeRepoPicker,
+            onRetry = viewModel::loadRepoOptions,
+        )
+    }
+
     if (showBranchInfo && session != null) {
         AlertDialog(
             onDismissRequest = { showBranchInfo = false },
@@ -567,8 +648,8 @@ fun ChatScreen(
             text = {
                 Text(
                     stringResource(
-                        if (isGeneral) R.string.chat_clear_confirm_body_general
-                        else R.string.chat_clear_confirm_body,
+                        if (hasRepo) R.string.chat_clear_confirm_body
+                        else R.string.chat_clear_confirm_body_general,
                     ),
                 )
             },
@@ -627,7 +708,7 @@ fun ChatScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EmptyChat(
-    isGeneral: Boolean,
+    hasRepo: Boolean,
     onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -646,10 +727,10 @@ private fun EmptyChat(
         EmptyState(
             icon = Icons.Rounded.SmartToy,
             title = stringResource(
-                if (isGeneral) R.string.chat_empty_title_general else R.string.chat_empty_title,
+                if (hasRepo) R.string.chat_empty_title else R.string.chat_empty_title_general,
             ),
             body = stringResource(
-                if (isGeneral) R.string.chat_empty_body_general else R.string.chat_empty_body,
+                if (hasRepo) R.string.chat_empty_body else R.string.chat_empty_body_general,
             ),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -660,23 +741,7 @@ private fun EmptyChat(
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (isGeneral) {
-                SuggestionChip(
-                    icon = Icons.Rounded.SmartToy,
-                    label = generalExplain,
-                    onClick = { onSuggestion(generalExplain) },
-                )
-                SuggestionChip(
-                    icon = Icons.Rounded.Bolt,
-                    label = generalCode,
-                    onClick = { onSuggestion(generalCode) },
-                )
-                SuggestionChip(
-                    icon = Icons.Rounded.Check,
-                    label = generalDebug,
-                    onClick = { onSuggestion(generalDebug) },
-                )
-            } else {
+            if (hasRepo) {
                 SuggestionChip(
                     icon = Icons.Rounded.Bolt,
                     label = fixLabel,
@@ -696,6 +761,22 @@ private fun EmptyChat(
                     icon = Icons.Rounded.Settings,
                     label = readmeLabel,
                     onClick = { onSuggestion(readmeLabel) },
+                )
+            } else {
+                SuggestionChip(
+                    icon = Icons.Rounded.SmartToy,
+                    label = generalExplain,
+                    onClick = { onSuggestion(generalExplain) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.Bolt,
+                    label = generalCode,
+                    onClick = { onSuggestion(generalCode) },
+                )
+                SuggestionChip(
+                    icon = Icons.Rounded.Check,
+                    label = generalDebug,
+                    onClick = { onSuggestion(generalDebug) },
                 )
             }
         }
@@ -727,7 +808,7 @@ private fun SuggestionChip(icon: androidx.compose.ui.graphics.vector.ImageVector
 }
 
 @Composable
-private fun ciChipColors(
+internal fun ciChipColors(
     conclusion: String?,
     status: String,
 ): Triple<
@@ -1285,4 +1366,191 @@ private fun PrReadyDialog(
             }
         }
     }
+}
+
+/* ---------------------- unified-chat / streaming UI ---------------------- */
+
+/**
+ * Live streaming reply bubble — the text grows as the model generates, like
+ * mainstream AI chat apps. A small step line underneath keeps context when
+ * agent steps interleave with the answer.
+ */
+@Composable
+private fun StreamingReplyBubble(
+    text: String,
+    step: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.background,
+            modifier = Modifier.fillMaxWidth(0.98f),
+        ) {
+            Column {
+                MarkdownMessageContent(
+                    text = text,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    isOnPrimary = false,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                )
+                // Blinking caret feel: animated typing dots + current step.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 14.dp, bottom = 10.dp),
+                ) {
+                    dev.repochat.ui.components.TypingDots()
+                    if (step.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = step,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Slim strip showing the bound repo context; tap for change/detach actions. */
+@Composable
+private fun RepoContextStrip(
+    hasRepo: Boolean,
+    label: String,
+    expanded: Boolean,
+    onToggleMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onChange: () -> Unit,
+    onDetach: () -> Unit,
+    onAttach: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.bounce {
+                if (hasRepo) onToggleMenu() else onAttach()
+            },
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = if (hasRepo) Icons.Rounded.Code else Icons.Rounded.AddCircleOutline,
+                    contentDescription = null,
+                    tint = if (hasRepo) {
+                        MaterialTheme.colorScheme.secondary
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (hasRepo) {
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+        DropdownMenu(
+            expanded = expanded && hasRepo,
+            onDismissRequest = onDismissMenu,
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.chat_change_repo)) },
+                leadingIcon = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
+                onClick = onChange,
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.chat_detach_repo)) },
+                leadingIcon = { Icon(Icons.Rounded.LinkOff, contentDescription = null) },
+                onClick = onDetach,
+            )
+        }
+    }
+}
+
+/** Red banner pinned above the composer while the latest build has failed. */
+@Composable
+private fun CiFailureBanner(
+    run: dev.repochat.core.model.WorkflowRunInfo,
+    onViewLogs: () -> Unit,
+    onFixWithAi: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Column(modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.ErrorOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.ci_banner_failed, run.name.ifBlank { "Build" }),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.chat_cancel), modifier = Modifier.size(15.dp))
+                }
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(start = 26.dp),
+            ) {
+                TextButton(onClick = onViewLogs, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
+                    Icon(Icons.Rounded.BugReport, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.ci_banner_view_logs))
+                }
+                TextButton(onClick = onFixWithAi, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
+                    Icon(Icons.Rounded.AutoFixHigh, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.ci_sheet_fix_with_ai))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tool-contract replies are JSON — never render them as streaming text.
+ * Plain conversational replies (general turns) start with ordinary text.
+ */
+private fun isLikelyToolJson(text: String): Boolean = text.trimStart().startsWith("{")
+
+/** Regenerate affordance only after a completed AI text reply. */
+private fun canRegenerate(messages: List<dev.repochat.core.model.ChatMessage>): Boolean {
+    val last = messages.lastOrNull() ?: return false
+    return last.role == dev.repochat.core.model.ChatRole.AI &&
+        last.kind == dev.repochat.core.model.MessageKind.TEXT &&
+        !last.text.isNullOrBlank()
 }

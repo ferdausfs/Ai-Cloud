@@ -45,14 +45,14 @@ fun AppNavHost(
     ) {
         composable<HomeRoute> {
             HomeScaffold(
-                onOpenChat = { owner, repo, defaultBranch, mode, repoKey ->
+                onOpenChat = { owner, repo, defaultBranch, repoKey ->
                     navController.navigate(
-                        ChatRoute(owner, repo, defaultBranch, mode, repoKey),
+                        ChatRoute(owner, repo, defaultBranch, repoKey),
                     ) { launchSingleTop = true }
                 },
-                onOpenGeneralChat = {
+                onNewChat = {
                     navController.navigate(
-                        ChatRoute("", "", "", "GENERAL", ""),
+                        ChatRoute("", "", "", ""),
                     ) { launchSingleTop = true }
                 },
                 onOpenRepoDetail = { owner, repo, defaultBranch ->
@@ -101,7 +101,6 @@ fun AppNavHost(
                             owner = route.owner,
                             repo = route.repo,
                             defaultBranch = route.defaultBranch,
-                            mode = "REPO",
                             repoKey = "${route.owner}/${route.repo}",
                         ),
                     ) { launchSingleTop = true }
@@ -115,7 +114,6 @@ fun AppNavHost(
                 owner = route.owner,
                 repo = route.repo,
                 defaultBranch = route.defaultBranch,
-                mode = route.mode,
                 repoKey = route.repoKey,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = this,

@@ -25,6 +25,22 @@ interface RepoSessionDao {
     @Query("UPDATE repo_sessions SET workingBranch = :branch WHERE repoKey = :repoKey")
     suspend fun updateBranch(repoKey: String, branch: String)
 
+    /**
+     * Attach / replace / detach the repo context of a conversation (unified
+     * chat). Empty owner means "no repo" — plain conversational agent turns.
+     */
+    @Query(
+        "UPDATE repo_sessions SET owner = :owner, repo = :repo, " +
+            "defaultBranch = :defaultBranch, mode = :mode WHERE repoKey = :repoKey",
+    )
+    suspend fun updateRepoContext(
+        repoKey: String,
+        owner: String,
+        repo: String,
+        defaultBranch: String,
+        mode: String,
+    )
+
     @Query("UPDATE repo_sessions SET title = :title WHERE repoKey = :repoKey")
     suspend fun updateTitle(repoKey: String, title: String)
 

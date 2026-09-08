@@ -77,25 +77,18 @@ class MainActivity : ComponentActivity() {
 
     private fun chatRouteFrom(intent: Intent?): ChatRoute? {
         if (intent?.action != ACTION_OPEN_CHAT) return null
-        val mode = intent.getStringExtra(EXTRA_MODE)?.takeIf { it.isNotBlank() } ?: "REPO"
         val repoKey = intent.getStringExtra(EXTRA_REPO_KEY).orEmpty()
-        if (mode.equals("GENERAL", ignoreCase = true)) {
-            return ChatRoute(
-                owner = "",
-                repo = "",
-                defaultBranch = "",
-                mode = "GENERAL",
-                repoKey = repoKey,
-            )
+        val owner = intent.getStringExtra(EXTRA_OWNER)?.takeIf { it.isNotBlank() }
+        val repo = intent.getStringExtra(EXTRA_REPO)?.takeIf { it.isNotBlank() }
+        if (owner.isNullOrBlank() || repo.isNullOrBlank()) {
+            // General/notification tap — open the conversation if known, else a fresh chat.
+            return ChatRoute(owner = "", repo = "", defaultBranch = "", repoKey = repoKey)
         }
-        val owner = intent.getStringExtra(EXTRA_OWNER)?.takeIf { it.isNotBlank() } ?: return null
-        val repo = intent.getStringExtra(EXTRA_REPO)?.takeIf { it.isNotBlank() } ?: return null
         val branch = intent.getStringExtra(EXTRA_DEFAULT_BRANCH)?.takeIf { it.isNotBlank() } ?: "main"
         return ChatRoute(
             owner = owner,
             repo = repo,
             defaultBranch = branch,
-            mode = "REPO",
             repoKey = repoKey.ifBlank { "$owner/$repo" },
         )
     }

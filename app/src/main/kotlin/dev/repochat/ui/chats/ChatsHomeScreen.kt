@@ -53,22 +53,20 @@ import dev.repochat.core.model.ConversationSummary
 import dev.repochat.ui.components.timeAgo
 
 /**
- * Conversation list (Claude-style). Opened from Settings until bottom tabs land.
- * New-chat choices are plain buttons (no ModalBottomSheet) to keep APIs minimal.
+ * Conversation list. The FAB opens a fresh unified chat directly — no
+ * General/Repo mode choice; repos are attached from inside the chat.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatsHomeScreen(
     onOpenConversation: (ConversationSummary) -> Unit,
-    onNewGeneral: () -> Unit,
-    onNewRepoChat: () -> Unit,
+    onNewChat: () -> Unit,
     onBack: (() -> Unit)? = null,
     embedded: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: ChatsHomeViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
-    var showNewChoices by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ConversationSummary?>(null) }
 
     Scaffold(
@@ -101,7 +99,7 @@ fun ChatsHomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showNewChoices = true },
+                onClick = onNewChat,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = CircleShape,
@@ -111,28 +109,12 @@ fun ChatsHomeScreen(
         },
     ) { padding ->
         when {
-            showNewChoices -> {
-                NewChatChoices(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    onGeneral = {
-                        showNewChoices = false
-                        onNewGeneral()
-                    },
-                    onRepo = {
-                        showNewChoices = false
-                        onNewRepoChat()
-                    },
-                    onCancel = { showNewChoices = false },
-                )
-            }
             conversations.isEmpty() -> {
                 EmptyChats(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
-                    onNew = { showNewChoices = true },
+                    onNew = onNewChat,
                 )
             }
             else -> {
@@ -179,67 +161,6 @@ fun ChatsHomeScreen(
                 }
             },
         )
-    }
-}
-
-@Composable
-private fun NewChatChoices(
-    onGeneral: () -> Unit,
-    onRepo: () -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = stringResource(R.string.chats_new_title),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Spacer(Modifier.height(16.dp))
-        Surface(
-            onClick = onGeneral,
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text(
-                    text = stringResource(R.string.chats_new_general),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = stringResource(R.string.chats_new_general_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Surface(
-            onClick = onRepo,
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text(
-                    text = stringResource(R.string.chats_new_repo),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = stringResource(R.string.chats_new_repo_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        TextButton(onClick = onCancel) {
-            Text(stringResource(R.string.chat_cancel))
-        }
     }
 }
 

@@ -83,6 +83,66 @@ class LlmRouterImpl @Inject constructor(
         throw lastError ?: AppError.Configuration("Every configured AI provider failed.")
     }
 
+    override suspend fun chatStreaming(
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean,
+        preferredConnectionId: String?,
+        onDelta: (String) -> Unit,
+    ): LlmChatResult {
+        val snap = settings.current()
+        val ordered = snap.llmConnectionsOrdered()
+        if (ordered.isEmpty()) {
+            val legacyKey = snap.ollamaKey.trim()
+            val legacyModel = snap.modelName.trim()
+            if (legacyKey.isBlank() || legacyModel.isBlank()) {
+                throw AppError.Configuration(
+                    "No AI provider configured. Add Ollama or an OpenAI-compatible connection in Settings.",
+                )
+            }
+            val text = ollama.chat(legacyModel, messages, jsonMode = jsonMode, apiKeyOverride = legacyKey)
+            onDelta(text)
+            return LlmChatResult(text = text, connectionId = "legacy-ollama", providerLabel = "Ollama")
+        }
+
+        val preferred = preferredConnectionId?.let { id -> ordered.firstOrNull { it.id == id } }
+            ?: snap.activeProviderId?.let { id -> ordered.firstOrNull { it.id == id } }
+
+        val queue = buildList {
+            preferred?.let { add(it) }
+            ordered.filter { it.id != preferred?.id }.forEach { add(it) }
+        }
+
+        var lastError: AppError? = null
+        var fellBackFrom: String? = null
+        var firstLabel: String? = null
+
+        for ((index, conn) in queue.withIndex()) {
+            if (index == 0) firstLabel = conn.label
+            try {
+                val text = invokeOneStreaming(conn, messages, jsonMode, onDelta)
+                val noteFrom = if (index > 0) firstLabel else null
+                return LlmChatResult(
+                    text = text,
+                    connectionId = conn.id,
+                    providerLabel = conn.label.ifBlank { conn.type.name },
+                    fellBackFrom = noteFrom ?: fellBackFrom,
+                )
+            } catch (e: AppError.RateLimited) {
+                lastError = e
+                if (fellBackFrom == null && index == 0) fellBackFrom = conn.label
+                continue
+            } catch (e: AppError) {
+                if (isRateLimitLike(e) && index < queue.lastIndex) {
+                    lastError = e
+                    if (fellBackFrom == null && index == 0) fellBackFrom = conn.label
+                    continue
+                }
+                throw e
+            }
+        }
+        throw lastError ?: AppError.Configuration("Every configured AI provider failed.")
+    }
+
     override suspend fun test(connection: ServiceConnection): String =
         when (connection.type) {
             ConnectionType.OLLAMA -> {
@@ -122,6 +182,13 @@ class LlmRouterImpl @Inject constructor(
         conn: ServiceConnection,
         messages: List<OllamaMessage>,
         jsonMode: Boolean,
+    ): String = invokeOneStreaming(conn, messages, jsonMode) { }
+
+    private suspend fun invokeOneStreaming(
+        conn: ServiceConnection,
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean,
+        onDelta: (String) -> Unit,
     ): String = when (conn.type) {
         ConnectionType.OLLAMA -> {
             val model = conn.modelName.trim().ifBlank {
@@ -130,14 +197,17 @@ class LlmRouterImpl @Inject constructor(
             if (model.isBlank()) {
                 throw AppError.Configuration("Ollama connection \"${conn.label}\" has no model name.")
             }
-            ollama.chat(
+            // Ollama service exposes no streaming API yet — one delta up front.
+            val text = ollama.chat(
                 model = model,
                 messages = messages,
                 jsonMode = jsonMode,
                 apiKeyOverride = conn.apiKey.trim().ifBlank { null },
             )
+            onDelta(text)
+            text
         }
-        ConnectionType.OPENAI_COMPATIBLE -> openAi.chat(conn, messages, jsonMode)
+        ConnectionType.OPENAI_COMPATIBLE -> openAi.chatStream(conn, messages, jsonMode, onDelta)
         ConnectionType.GITHUB -> throw AppError.Configuration("Not an LLM connection.")
     }
 

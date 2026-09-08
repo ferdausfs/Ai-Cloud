@@ -100,9 +100,10 @@ data class ActiveRepo(
 enum class ChatMode { GENERAL, REPO }
 
 /**
- * One AI conversation. Repo-mode sessions also name the working branch
+ * One AI conversation. Sessions with repo context also name the working branch
  * (`ai-chat/{sessionId}`) that all AI commits go to — never main.
- * General-mode sessions have empty owner/repo and no GitHub tools.
+ * Sessions without repo context are plain agent conversations; the user can
+ * attach a repo at any time from inside the chat (no separate mode).
  */
 data class RepoSession(
     val repoKey: String,
@@ -119,7 +120,7 @@ data class RepoSession(
     val isGeneral: Boolean get() = mode == ChatMode.GENERAL
     val displayTitle: String
         get() = title?.takeIf { it.isNotBlank() }
-            ?: if (isGeneral) "General chat" else "$owner/$repo"
+            ?: if (isGeneral) "New chat" else "$owner/$repo"
 }
 
 /** Row for the Chats home list (Claude.ai-style). */
@@ -284,6 +285,11 @@ sealed interface TurnEvent {
     data class TreeReady(val truncated: Boolean) : TurnEvent
     data class ReadingFile(val path: String) : TurnEvent
     data class Reply(val text: String) : TurnEvent
+    /**
+     * Cumulative streamed reply text (plain conversational turns). The UI
+     * renders this as a live bubble; [Reply] still delivers the final text.
+     */
+    data class ReplyDelta(val text: String) : TurnEvent
     /** Informational note when auto-fallback switched providers mid-turn. */
     data class ProviderNote(val text: String) : TurnEvent
     data class ProposeWrite(val messageId: Long, val change: PendingChange) : TurnEvent

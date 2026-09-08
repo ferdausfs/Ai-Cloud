@@ -271,6 +271,29 @@ class FakeChatRepository(
         }
     }
 
+    override suspend fun updateRepoContext(
+        repoKey: String,
+        owner: String,
+        repo: String,
+        defaultBranch: String,
+        isRepo: Boolean,
+    ) {
+        val idx = allSessions.indexOfFirst { it.repoKey == repoKey }
+        if (idx >= 0) {
+            allSessions[idx] = allSessions[idx].copy(
+                owner = owner,
+                repo = repo,
+                defaultBranch = defaultBranch,
+                mode = if (isRepo) {
+                    dev.repochat.core.model.ChatMode.REPO
+                } else {
+                    dev.repochat.core.model.ChatMode.GENERAL
+                },
+            )
+            sessionState.value = allSessions[idx]
+        }
+    }
+
     override suspend fun deleteConversation(repoKey: String) {
         allSessions.removeAll { it.repoKey == repoKey }
         stored.removeAll { it.repoKey == repoKey }

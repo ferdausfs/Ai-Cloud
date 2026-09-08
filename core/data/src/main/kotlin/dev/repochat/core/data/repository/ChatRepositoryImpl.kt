@@ -102,6 +102,22 @@ class ChatRepositoryImpl @Inject constructor(
         sessionDao.updateBranch(repoKey, branch)
     }
 
+    override suspend fun updateRepoContext(
+        repoKey: String,
+        owner: String,
+        repo: String,
+        defaultBranch: String,
+        isRepo: Boolean,
+    ) {
+        sessionDao.updateRepoContext(
+            repoKey = repoKey,
+            owner = owner,
+            repo = repo,
+            defaultBranch = defaultBranch,
+            mode = if (isRepo) ChatMode.REPO.name else ChatMode.GENERAL.name,
+        )
+    }
+
     override suspend fun deleteConversation(repoKey: String) {
         // Single transaction: messages and session are removed together so a
         // crash between the two statements can never orphan message rows.

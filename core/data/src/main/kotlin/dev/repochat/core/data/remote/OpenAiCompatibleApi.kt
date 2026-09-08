@@ -18,6 +18,19 @@ interface OpenAiCompatibleApi {
         @retrofit2.http.HeaderMap headers: Map<String, String>,
     ): OpenAiChatResponseDto
 
+    /**
+     * Server-sent-events variant ([stream] = true in the body). The raw
+     * `text/event-stream` body is parsed by the repository — errors on this
+     * endpoint surface as HTTP codes, not JSON envelopes.
+     */
+    @retrofit2.http.Streaming
+    @retrofit2.http.POST
+    suspend fun chatCompletionsStream(
+        @retrofit2.http.Url url: String,
+        @retrofit2.http.Body body: OpenAiChatRequestDto,
+        @retrofit2.http.HeaderMap headers: Map<String, String>,
+    ): okhttp3.ResponseBody
+
     @retrofit2.http.GET
     suspend fun listModels(
         @retrofit2.http.Url url: String,

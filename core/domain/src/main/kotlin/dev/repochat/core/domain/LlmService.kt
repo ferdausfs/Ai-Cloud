@@ -22,6 +22,21 @@ interface LlmService {
         preferredConnectionId: String? = null,
     ): LlmChatResult
 
+    /**
+     * Streaming variant of [chat]. [onDelta] receives the cumulative reply
+     * text as it arrives (best effort — providers without streaming support
+     * emit exactly one delta with the full text before returning). The final
+     * complete text is also returned in the [LlmChatResult].
+     */
+    suspend fun chatStreaming(
+        messages: List<OllamaMessage>,
+        jsonMode: Boolean,
+        preferredConnectionId: String? = null,
+        onDelta: (String) -> Unit,
+    ): LlmChatResult = chat(messages, jsonMode, preferredConnectionId).also {
+        onDelta(it.text)
+    }
+
     /** Trivial ping against one connection (Settings "Test"). */
     suspend fun test(connection: ServiceConnection): String
 

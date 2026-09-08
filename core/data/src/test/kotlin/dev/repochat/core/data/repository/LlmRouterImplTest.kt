@@ -79,6 +79,11 @@ class LlmRouterImplTest {
                     body: dev.repochat.core.data.remote.OpenAiChatRequestDto,
                     headers: Map<String, String>,
                 ) = error("not used")
+                override suspend fun chatCompletionsStream(
+                    url: String,
+                    body: dev.repochat.core.data.remote.OpenAiChatRequestDto,
+                    headers: Map<String, String>,
+                ): okhttp3.ResponseBody = error("not used")
                 override suspend fun listModels(
                     url: String,
                     headers: Map<String, String>,

@@ -121,6 +121,7 @@ class AutoFixLoop @Inject constructor(
                         send(event)
                     }
                     is TurnEvent.Reply -> send(event)
+                    is TurnEvent.ReplyDelta -> send(event)
                     is TurnEvent.Working,
                     is TurnEvent.TreeReady,
                     is TurnEvent.ReadingFile,

@@ -19,9 +19,7 @@ data class ChatRoute(
     val owner: String,
     val repo: String,
     val defaultBranch: String,
-    /** GENERAL or REPO */
-    val mode: String = "REPO",
-    /** Stored session key — required to reopen a general chat. */
+    /** Stored session key — required to reopen an existing conversation. */
     val repoKey: String = "",
 )
 

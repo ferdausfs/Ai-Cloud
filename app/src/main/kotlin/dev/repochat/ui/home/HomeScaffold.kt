@@ -80,8 +80,8 @@ import dev.repochat.ui.theme.githubCtaButtonColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScaffold(
-    onOpenChat: (owner: String, repo: String, defaultBranch: String, mode: String, repoKey: String) -> Unit,
-    onOpenGeneralChat: () -> Unit,
+    onOpenChat: (owner: String, repo: String, defaultBranch: String, repoKey: String) -> Unit,
+    onNewChat: () -> Unit,
     onOpenRepoDetail: (owner: String, repo: String, defaultBranch: String) -> Unit,
     onOpenRepos: () -> Unit,
     modifier: Modifier = Modifier,
@@ -203,7 +203,7 @@ fun HomeScaffold(
                 0 -> HomeTab(
                     conversations = conversations,
                     onOpenChat = onOpenChat,
-                    onOpenGeneralChat = onOpenGeneralChat,
+                    onNewChat = onNewChat,
                     onOpenRepoDetail = onOpenRepoDetail,
                     onOpenRepos = onOpenRepos,
                 )
@@ -212,13 +212,12 @@ fun HomeScaffold(
                     onOpenConversation = { summary ->
                         val s = summary.session
                         if (s.isGeneral) {
-                            onOpenChat("", "", "", "GENERAL", s.repoKey)
+                            onOpenChat("", "", "", s.repoKey)
                         } else {
-                            onOpenChat(s.owner, s.repo, s.defaultBranch, "REPO", s.repoKey)
+                            onOpenChat(s.owner, s.repo, s.defaultBranch, s.repoKey)
                         }
                     },
-                    onNewGeneral = onOpenGeneralChat,
-                    onNewRepoChat = onOpenRepos,
+                    onNewChat = onNewChat,
                     onBack = null,
                     embedded = true,
                 )
@@ -239,7 +238,6 @@ fun HomeScaffold(
                                     current.owner,
                                     current.repo,
                                     current.defaultBranch,
-                                    "REPO",
                                     current.repoKey,
                                 )
                             },
@@ -268,8 +266,8 @@ private fun tabItemColors() = NavigationBarItemDefaults.colors(
 @Composable
 private fun HomeTab(
     conversations: List<ConversationSummary>,
-    onOpenChat: (owner: String, repo: String, defaultBranch: String, mode: String, repoKey: String) -> Unit,
-    onOpenGeneralChat: () -> Unit,
+    onOpenChat: (owner: String, repo: String, defaultBranch: String, repoKey: String) -> Unit,
+    onNewChat: () -> Unit,
     onOpenRepoDetail: (owner: String, repo: String, defaultBranch: String) -> Unit,
     onOpenRepos: () -> Unit,
 ) {
@@ -340,7 +338,7 @@ private fun HomeTab(
                 repo = current.repo,
                 branch = current.workingBranch ?: current.defaultBranch,
                 onStart = {
-                    onOpenChat(current.owner, current.repo, current.defaultBranch, "REPO", current.repoKey)
+                    onOpenChat(current.owner, current.repo, current.defaultBranch, current.repoKey)
                 },
                 onBrowse = {
                     onOpenRepoDetail(current.owner, current.repo, current.defaultBranch)
@@ -382,9 +380,9 @@ private fun HomeTab(
                             onClick = {
                                 val s = summary.session
                                 if (s.isGeneral) {
-                                    onOpenChat("", "", "", "GENERAL", s.repoKey)
+                                    onOpenChat("", "", "", s.repoKey)
                                 } else {
-                                    onOpenChat(s.owner, s.repo, s.defaultBranch, "REPO", s.repoKey)
+                                    onOpenChat(s.owner, s.repo, s.defaultBranch, s.repoKey)
                                 }
                             },
                         )

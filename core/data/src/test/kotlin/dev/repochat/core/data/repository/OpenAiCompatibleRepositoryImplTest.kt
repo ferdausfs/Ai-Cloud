@@ -54,6 +54,24 @@ private class RecordingApi : OpenAiCompatibleApi {
         )
     }
 
+    override suspend fun chatCompletionsStream(
+        url: String,
+        body: OpenAiChatRequestDto,
+        headers: Map<String, String>,
+    ): okhttp3.ResponseBody {
+        lastChatUrl = url
+        lastChatBody = body
+        lastChatHeaders = headers
+        chatError?.let { throw it }
+        // Minimal SSE body: two deltas + [DONE].
+        val sse = """
+            data: {"choices":[{"delta":{"content":"ok"}}]}
+            data: {"choices":[{"delta":{"content":"!"}}]}
+            data: [DONE]
+        """.trimIndent()
+        return okhttp3.ResponseBody.create(null, sse)
+    }
+
     override suspend fun listModels(
         url: String,
         headers: Map<String, String>,
@@ -132,6 +150,11 @@ class OpenAiCompatibleRepositoryImplTest {
                 body: OpenAiChatRequestDto,
                 headers: Map<String, String>,
             ) = error("not used")
+            override suspend fun chatCompletionsStream(
+                url: String,
+                body: OpenAiChatRequestDto,
+                headers: Map<String, String>,
+            ): okhttp3.ResponseBody = error("not used")
             override suspend fun listModels(
                 url: String,
                 headers: Map<String, String>,
@@ -232,6 +255,23 @@ class OpenAiCompatibleRepositoryImplTest {
         val imageUrl = (imagePart["image_url"] as kotlinx.serialization.json.JsonObject)["url"]
             ?.toString()?.removeSurrounding("\"")
         assertEquals("data:image/png;base64,QUJD", imageUrl)
+    }
+
+    @Test
+    fun `chatStream parses sse deltas and requests stream true`() = runBlocking {
+        val api = RecordingApi()
+        val repo = OpenAiCompatibleRepositoryImpl(api)
+        val deltas = mutableListOf<String>()
+        val text = repo.chatStream(
+            connection = connection("https://api.groq.com/openai/v1", "Groq"),
+            messages = listOf(OllamaMessage(OllamaRole.USER, "hi")),
+            jsonMode = false,
+            onDelta = { deltas.add(it) },
+        )
+        assertEquals("ok!", text)
+        assertEquals(listOf("ok", "ok!"), deltas)
+        assertEquals(true, api.lastChatBody?.stream)
+        assertEquals("https://api.groq.com/openai/v1/chat/completions", api.lastChatUrl)
     }
 
     @Test

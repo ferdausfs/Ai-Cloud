@@ -111,6 +111,8 @@ class AiTurnCoordinator @Inject constructor(
                 sessionId = request.sessionId,
                 typing = true,
                 workingStep = appContext.getString(R.string.turn_step_starting),
+                stepTrail = listOf(appContext.getString(R.string.turn_step_starting)),
+                streamText = "",
                 error = null,
                 canRetry = false,
                 liveChange = null,
@@ -197,6 +199,8 @@ class AiTurnCoordinator @Inject constructor(
                 autoFixActive = false,
                 autoFixAttempt = 0,
                 workingStep = "",
+                stepTrail = emptyList(),
+                streamText = "",
                 canRetry = false,
                 error = null,
             )
@@ -228,7 +232,20 @@ class AiTurnCoordinator @Inject constructor(
     private suspend fun handleEvent(event: TurnEvent, autoFix: Boolean) {
         when (event) {
             is TurnEvent.Working ->
-                _state.update { it.copy(workingStep = event.step, typing = true, active = true) }
+                _state.update {
+                    it.copy(
+                        workingStep = event.step,
+                        typing = true,
+                        active = true,
+                        // Live activity trail (agent feel) — cap at 4 entries.
+                        stepTrail = (it.stepTrail + event.step)
+                            .distinct()
+                            .takeLast(4),
+                    )
+                }
+
+            is TurnEvent.ReplyDelta ->
+                _state.update { it.copy(streamText = event.text, typing = true, active = true) }
 
             is TurnEvent.TreeReady ->
                 if (event.truncated) _state.update { it.copy(treeTruncated = true) }
@@ -240,6 +257,8 @@ class AiTurnCoordinator @Inject constructor(
                     it.copy(
                         typing = false,
                         workingStep = "",
+                        stepTrail = emptyList(),
+                        streamText = "",
                         approvalPending = false,
                         approving = false,
                         // Auto-fix may still continue after a mid-loop reply.
@@ -351,6 +370,8 @@ class AiTurnCoordinator @Inject constructor(
                         active = false,
                         autoFixActive = false,
                         workingStep = "",
+                        stepTrail = emptyList(),
+                        streamText = "",
                     )
                 }
                 AiTurnService.stop(appContext)
@@ -466,6 +487,10 @@ data class AiTurnLiveState(
     val sessionId: String = "",
     val typing: Boolean = false,
     val workingStep: String = "",
+    /** Recent agent steps (most recent last, max 4) for the activity trail. */
+    val stepTrail: List<String> = emptyList(),
+    /** Cumulative streamed reply text (empty when not streaming / tool JSON). */
+    val streamText: String = "",
     val approvalPending: Boolean = false,
     val approving: Boolean = false,
     val pendingWriteMessageId: Long? = null,

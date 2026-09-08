@@ -432,24 +432,40 @@ private fun StatusChip(message: ChatMessage, branch: String?) {
 }
 
 @Composable
-fun TypingBubble(step: String, modifier: Modifier = Modifier) {
+fun TypingBubble(
+    step: String,
+    trail: List<String> = emptyList(),
+    modifier: Modifier = Modifier,
+) {
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 6.dp, bottomEnd = 20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                dev.repochat.ui.components.TypingDots()
-                if (step.isNotBlank()) {
-                    Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                // Live activity trail (agent feel): recent steps, oldest faded.
+                trail.dropLast(1).forEach { past ->
                     Text(
-                        text = step,
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "· $past",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = if (trail.size > 1) 2.dp else 0.dp),
+                ) {
+                    dev.repochat.ui.components.TypingDots()
+                    if (step.isNotBlank()) {
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = step,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

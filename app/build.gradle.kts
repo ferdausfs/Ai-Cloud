@@ -31,10 +31,10 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the Ai Cloud redesign release; upgrades in place via
-        // `adb install -r` from the previous v2-identity build (versionCode 2).
-        versionCode = 3
-        versionName = "1.1.0"
+        // Bumped for the unified-chat + in-app CI logs release; upgrades in
+        // place via `adb install -r` from the redesign build (versionCode 3).
+        versionCode = 4
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
