@@ -7,6 +7,17 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val releaseSigning = listOf(
+    "RELEASE_STORE_FILE",
+    "RELEASE_STORE_PASSWORD",
+    "RELEASE_KEY_ALIAS",
+    "RELEASE_KEY_PASSWORD",
+).associateWith { providers.environmentVariable(it).orNull?.takeIf(String::isNotBlank) }
+val hasReleaseSigning = releaseSigning.values.all { it != null }
+require(releaseSigning.values.all { it == null } || hasReleaseSigning) {
+    "Release signing is incomplete. Set all four RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD variables, or leave all unset for an unsigned APK."
+}
+
 android {
     namespace = "dev.repochat"
     compileSdk = 35
@@ -21,9 +32,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseSigning["RELEASE_STORE_FILE"]))
+                storePassword = releaseSigning["RELEASE_STORE_PASSWORD"]
+                keyAlias = releaseSigning["RELEASE_KEY_ALIAS"]
+                keyPassword = releaseSigning["RELEASE_KEY_PASSWORD"]
+            }
+        }
+    }
+
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
