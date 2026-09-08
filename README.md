@@ -132,21 +132,52 @@ OpenAI-shaped endpoint is a preset, not a rewrite. UI → ViewModel → UseCase 
 6. **Create pull request** raises a PR from the working branch into the
    default branch — merging is always a separate manual step.
 
-## GitHub Actions CI & auto-merge
+## GitHub Actions CI
 
-`.github/workflows/android.yml` on every push:
+`.github/workflows/android.yml` validates every branch and pull request:
 
-1. **Build** — `:app:lintDebug`, `:app:assembleDebug`, the full unit test
-   suite (`:core:model:test`, `:core:domain:test`, `:core:data:testDebugUnitTest`,
-   `:app:testDebugUnitTest`), plus connected emulator tests. The build also
-   submits the Gradle dependency graph, so known CVEs surface as Dependabot
-   alerts; pull requests additionally run a Dependency Review gate.
-2. **Auto-merge into `main`** — only `ai-chat/*` working branches are merged,
-   and only after build + connected tests are green (`--no-ff` merge commit).
-   `main` can never receive a red commit.
+1. **Build** — `:app:lintDebug` + `:app:lintRelease`, `:app:assembleDebug`,
+   `:app:assembleRelease` (signed when the four `RELEASE_*` secrets are set,
+   unsigned otherwise), and the full unit test suite across all modules in
+   both debug and release variants. Lint reports, test reports and both APKs
+   are uploaded as artifacts. Pull requests additionally run a Dependency
+   Review gate (fails on high-severity vulnerabilities).
+2. **Connected tests** — the emulator job runs
+   `:app:connectedDebugAndroidTest` on an API 34 x86_64 emulator.
+3. **No auto-merge** — CI only validates; it never pushes to `main` and never
+   opens pull requests. Merging a green `ai-chat/*` branch into `main` is a
+   deliberate human decision. (Earlier versions of this README described an
+   auto-merge job; that job has been removed — if you re-enable one, keep it
+   restricted to `ai-chat/*` branches and green runs only.)
 
-The app itself still never writes to `main` — AI commits always land on
+The app itself never writes to `main` — AI commits always land on
 `ai-chat/<session-id>` working branches.
+
+## Privacy notes
+
+- The app talks to exactly two kinds of endpoints: `api.github.com` (with
+  your PAT) and the LLM provider base URLs you configure yourself. There is
+  no telemetry, analytics or crash reporting.
+- Repository file contents are sent to the LLM provider you choose — that is
+  inherent to the product. If a repo contains secrets, do not point an AI
+  session at it (or use a provider with a strict no-training policy).
+- API keys live in `EncryptedSharedPreferences` (Android Keystore) and are
+  excluded from cloud backups and device transfer.
+
+## Auto-fix safety notes
+
+Auto-fix runs **unattended commits** on your working branch by design. Keep
+the following in mind:
+
+- Repo files and CI logs can contain adversarial text (indirect prompt
+  injection). The app delimits such content, re-validates every file path,
+  and restricts CI checks to the session's own branch — but no prompt-level
+  defense is absolute. **Use auto-fix on repositories you trust.**
+- The loop never claims success without a green CI run for the exact commit
+  it produced (matched by `head_sha`), and it stops immediately with the
+  provider's own error when credentials are rejected.
+- You can cancel any turn — including a running auto-fix loop — with the
+  **Stop** button in the chat.
 
 ## Branch safety notes
 
@@ -195,9 +226,10 @@ is written as chat bubbles and shown on the FGS notification
 - **"Could not load models"** — check connectivity; the picker shows your last
   successfully loaded catalog with an Offline indicator, and you can always
   enter a model id manually.
-- **Turn stuck on "Approving…"** — should not happen anymore (fixed); if you
-  ever see it, tap Approve/Reject again or restart the app — history is safe
-  in Room.
+- **Turn stuck on "Approving…"** — proposals left pending by a restart or
+  crash are closed automatically the next time you open the chat, with a
+  note. If you had just approved one, check the working branch — that commit
+  may still have landed.
 - **Background turn dies** — whitelist the app from battery optimization
   (Settings → battery tip button).
 
@@ -209,7 +241,10 @@ is written as chat bubbles and shown on the FGS notification
 ./gradlew :app:assembleDebug
 ```
 
-Unit tests cover the action parser, path sanitization, prompt builder, diff
-engine, provider presets, pricing classification, request shaping (vision
-parts, capability flags), error mapping (401/402/429/Retry-After), the
-provider router fallback and the AutoFixLoop.
+Unit tests cover the action parser, path sanitization (model-side and
+repository-boundary), prompt builder (including untrusted-content
+delimiters), diff engine, provider presets, pricing classification, request
+shaping (vision parts, capability flags), error mapping (401/402/429/
+Retry-After), the provider router fallback, CI-run attribution by `head_sha`
+in the AutoFixLoop, fail-fast on non-retryable errors, and the AutoFixLoop
+itself.
