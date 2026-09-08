@@ -86,8 +86,10 @@ class AutoFixLoopTest {
         val github = FakeGithubService().apply {
             files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
             // No baseline (workingBranch null). First poll after commit is green.
+            // headSha matches FakeGithubService.commitFile's returned sha —
+            // real GitHub always reports head_sha, and attribution requires it.
             workflowRunSequence += listOf(
-                WorkflowRunInfo(10, "Android CI", "completed", "success", "https://ci/10"),
+                WorkflowRunInfo(10, "Android CI", "completed", "success", "https://ci/10", headSha = "new-sha"),
             )
         }
         val chat = FakeChatRepository()
@@ -119,10 +121,10 @@ class AutoFixLoopTest {
         val github = FakeGithubService().apply {
             files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
             workflowRunSequence += listOf(
-                WorkflowRunInfo(21, "Android CI", "completed", "failure", "https://ci/21"),
+                WorkflowRunInfo(21, "Android CI", "completed", "failure", "https://ci/21", headSha = "new-sha"),
             )
             workflowRunSequence += listOf(
-                WorkflowRunInfo(22, "Android CI", "completed", "success", "https://ci/22"),
+                WorkflowRunInfo(22, "Android CI", "completed", "success", "https://ci/22", headSha = "new-sha"),
             )
             jobsByRunId[21] = listOf(
                 WorkflowJobInfo(
@@ -165,10 +167,10 @@ class AutoFixLoopTest {
         val github = FakeGithubService().apply {
             files["a.kt"] = GitFile("a.kt", "old", "sha", 1, false)
             workflowRunSequence += listOf(
-                WorkflowRunInfo(1, "CI", "completed", "failure", null),
+                WorkflowRunInfo(1, "CI", "completed", "failure", null, headSha = "new-sha"),
             )
             workflowRunSequence += listOf(
-                WorkflowRunInfo(2, "CI", "completed", "failure", null),
+                WorkflowRunInfo(2, "CI", "completed", "failure", null, headSha = "new-sha"),
             )
             jobsByRunId[1] = listOf(WorkflowJobInfo(11, "build", "failure"))
             jobsByRunId[2] = listOf(WorkflowJobInfo(12, "build", "failure"))
@@ -192,5 +194,78 @@ class AutoFixLoopTest {
             "must not claim success: $progress",
             progress.none { it is AutoFixEvent.CiPassed },
         )
+    }
+
+    @Test
+    fun `loop_ignoresStaleRuns_whenHeadShaAvailable`() = runTest {
+        // Regression (AUD-001): a completed SUCCESS run for an OLDER commit
+        // must never be reported as the green run for our commit. The fake
+        // commit always yields sha "new-sha"; only a run for "old-sha" exists.
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    writeAction("a.kt", "x", "try 1"),
+                    writeAction("a.kt", "y", "try 2"),
+                ),
+            ),
+        )
+        val github = FakeGithubService().apply {
+            files["a.kt"] = GitFile("a.kt", "old", "sha", 1, false)
+            workflowRunSequence += listOf(
+                WorkflowRunInfo(10, "CI", "completed", "success", "https://ci/10", headSha = "old-sha"),
+            )
+            // No run with headSha == "new-sha" ever appears.
+        }
+        val chat = FakeChatRepository()
+        chat.ensureSession("acme", "demo", "main")
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val loop = testLoop(orchestrator, github, chat)
+
+        val events = loop.run(request("fix it", max = 2), maxAttempts = 2).toList()
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+
+        assertTrue(
+            "stale run must not produce CiPassed: $progress",
+            progress.none { it is AutoFixEvent.CiPassed },
+        )
+        assertTrue("expected an honest give-up: $progress", progress.any { it is AutoFixEvent.GaveUp })
+        val replies = events.mapNotNull { (it as? TurnEvent.Reply)?.text }
+        assertTrue(replies.any { it.contains("couldn't get CI green", ignoreCase = true) })
+    }
+
+    @Test
+    fun `loop_waitsForMatchingHeadSha_thenPasses`() = runTest {
+        // Regression (AUD-001): while only older-commit runs exist, the loop
+        // must keep polling; it may only conclude on the run for OUR commit.
+        val ollama = FakeLlmService(
+            ArrayDeque(listOf(writeAction("src/Main.kt", "fun main() = Unit", "fix: compile"))),
+        )
+        val github = FakeGithubService().apply {
+            files["src/Main.kt"] = GitFile("src/Main.kt", "old", "sha1", 3, false)
+            workflowRunSequence += listOf(
+                WorkflowRunInfo(9, "CI", "completed", "success", "https://ci/9", headSha = "older-sha"),
+            )
+            workflowRunSequence += listOf(
+                WorkflowRunInfo(9, "CI", "completed", "success", "https://ci/9", headSha = "older-sha"),
+            )
+            workflowRunSequence += listOf(
+                WorkflowRunInfo(9, "CI", "completed", "success", "https://ci/9", headSha = "older-sha"),
+                WorkflowRunInfo(10, "CI", "in_progress", null, "https://ci/10", headSha = "new-sha"),
+            )
+            workflowRunSequence += listOf(
+                WorkflowRunInfo(10, "CI", "completed", "success", "https://ci/10", headSha = "new-sha"),
+            )
+        }
+        val chat = FakeChatRepository()
+        chat.ensureSession("acme", "demo", "main")
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val loop = testLoop(orchestrator, github, chat)
+
+        val events = loop.run(request(), maxAttempts = 1).toList()
+        val progress = events.mapNotNull { (it as? TurnEvent.AutoFixProgress)?.event }
+
+        val passed = progress.filterIsInstance<AutoFixEvent.CiPassed>().single()
+        assertEquals(10L, passed.run.id)
+        assertEquals("new-sha", passed.run.headSha)
     }
 }

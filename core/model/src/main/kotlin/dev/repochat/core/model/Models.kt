@@ -187,6 +187,12 @@ data class WorkflowRunInfo(
     val conclusion: String?,
     val htmlUrl: String?,
     val updatedAtMillis: Long? = null,
+    /**
+     * Commit SHA this run executed. Used to attribute a run to the exact
+     * commit the AutoFix loop produced — without it, a stale successful run
+     * for an older commit can be mistaken for "our CI is green".
+     */
+    val headSha: String? = null,
 ) {
     /** Short human-readable label for chips / chat replies. */
     fun summarize(): String {
@@ -281,7 +287,16 @@ sealed interface TurnEvent {
     /** Informational note when auto-fallback switched providers mid-turn. */
     data class ProviderNote(val text: String) : TurnEvent
     data class ProposeWrite(val messageId: Long, val change: PendingChange) : TurnEvent
-    data class WriteCommitted(val messageId: Long, val change: PendingChange) : TurnEvent
+    /** Human-approved commit landed on the working branch. */
+    data class WriteCommitted(
+        val messageId: Long,
+        val change: PendingChange,
+        /**
+         * SHA of the commit GitHub returned for this write. Lets AutoFixLoop
+         * match the CI run that belongs to THIS commit (never a stale one).
+         */
+        val newSha: String = "",
+    ) : TurnEvent
     data class WriteDeclined(val messageId: Long, val change: PendingChange) : TurnEvent
     /** Model created a pull request mid-conversation. */
     data class PullRequestCreated(val info: PullRequestInfo) : TurnEvent

@@ -198,7 +198,7 @@ class AiEditOrchestrator @Inject constructor(
                             commitMessage = change.commitMessage,
                         )
                         chat.markWrite(rowId, MessageStatus.APPROVED, result.newSha)
-                        emit(TurnEvent.WriteCommitted(rowId, change))
+                        emit(TurnEvent.WriteCommitted(rowId, change, newSha = result.newSha))
                     } else {
                         chat.markWrite(rowId, MessageStatus.REJECTED, null)
                         emit(TurnEvent.WriteDeclined(rowId, change))

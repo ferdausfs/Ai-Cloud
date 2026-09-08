@@ -167,6 +167,7 @@ class GithubRepositoryImpl @Inject constructor(
                 conclusion = run.conclusion,
                 htmlUrl = run.htmlUrl,
                 updatedAtMillis = run.updatedAt?.let(::parseIso8601),
+                headSha = run.headSha?.takeIf { it.isNotBlank() },
             )
         }
     }
