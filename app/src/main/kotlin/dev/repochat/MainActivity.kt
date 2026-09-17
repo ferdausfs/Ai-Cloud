@@ -24,8 +24,11 @@ import dev.repochat.navigation.ChatRoute
 import dev.repochat.navigation.HomeRoute
 import dev.repochat.navigation.RepoPickerRoute
 import dev.repochat.navigation.SettingsRoute
+import dev.repochat.ui.onboarding.FirstRunController
+import dev.repochat.ui.onboarding.OnboardingScreen
 import dev.repochat.ui.theme.RepoChatTheme
 import dev.repochat.ui.theme.ThemeViewModel
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -36,6 +39,9 @@ class MainActivity : ComponentActivity() {
      * any type-safe nav route (chat, settings, repo picker).
      */
     private var pendingRoute by mutableStateOf<Any?>(null)
+
+    @Inject
+    lateinit var firstRun: FirstRunController
 
     private val themeViewModel: ThemeViewModel by viewModels<ThemeViewModel>()
 
@@ -56,7 +62,11 @@ class MainActivity : ComponentActivity() {
                 darkTheme = darkOverride ?: systemDark,
                 amoled = amoled,
             ) {
-                SharedTransitionLayout {
+                val onboardingDone by firstRun.completed.collectAsStateWithLifecycle()
+                if (!onboardingDone) {
+                    OnboardingScreen(onFinished = { /* state flip swaps UI */ })
+                } else {
+                    SharedTransitionLayout {
                     val navController = rememberNavController()
                     LaunchedEffect(deepLink) {
                         val route = deepLink ?: return@LaunchedEffect
@@ -71,6 +81,7 @@ class MainActivity : ComponentActivity() {
                         sharedTransitionScope = this,
                         modifier = Modifier.fillMaxSize(),
                     )
+                    }
                 }
             }
         }

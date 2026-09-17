@@ -267,4 +267,25 @@
     <string name="shortcut_settings_long">Open settings</string>
     <string name="settings_amoled">AMOLED black</string>
     <string name="settings_amoled_desc">True-black dark theme — saves battery on OLED screens</string>
+    <!-- Onboarding -->
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_welcome_title">Welcome to Ai Cloud</string>
+    <string name="onboarding_welcome_body">One AI app for everything — chat with any provider, run agent skills, write code to GitHub, generate images and speech.</string>
+    <string name="onboarding_feature_agent">Agent that reads and edits your GitHub repos</string>
+    <string name="onboarding_feature_skills">Installable agent skills (Claude-format SKILL.md)</string>
+    <string name="onboarding_feature_media">Voice input, image generation and speech</string>
+    <string name="onboarding_get_started">Get started</string>
+    <string name="onboarding_provider_title">Pick your AI provider</string>
+    <string name="onboarding_provider_body">Choose a preset and paste your API key. You can add more providers and switch anytime in Settings.</string>
+    <string name="onboarding_base_url">Base URL</string>
+    <string name="onboarding_api_key">API key</string>
+    <string name="onboarding_model">Model</string>
+    <string name="onboarding_test">Test connection</string>
+    <string name="onboarding_test_hint">Optional — verifies the key without spending tokens</string>
+    <string name="onboarding_key_privacy">Your key is stored encrypted on this device only — never uploaded by the app.</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_done_title">You are all set</string>
+    <string name="onboarding_done_body">Your provider is saved. Install skills and connect GitHub anytime from Settings.</string>
+    <string name="onboarding_open_app">Open Ai Cloud</string>
 </resources>

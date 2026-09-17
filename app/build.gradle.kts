@@ -31,10 +31,11 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the premium polish release: AMOLED true-black theme,
-        // haptic feedback on key actions, home-screen app shortcuts.
-        versionCode = 8
-        versionName = "2.3.0"
+        // Bumped for the onboarding release: skippable first-run wizard with
+        // provider presets, encrypted key entry and a live (token-free)
+        // connection test.
+        versionCode = 9
+        versionName = "2.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
