@@ -1,5 +1,12 @@
 # Ai-Cloud R8 rules — release minification.
 #
+# NOTE (v2.5.1): minification is currently DISABLED in build.gradle.kts after
+# a field-reported startup crash on the minified v2.5.0 build. These rules
+# are kept intact and the CI connected-tests job now runs a release-launch
+# smoke test (install + launch + stay-alive check) — re-enable R8 only when
+# that smoke test passes with minify ON, so the crash is caught in CI with
+# a real stack trace instead of on user devices.
+#
 # Most stacks (Hilt, Room, Compose, OkHttp) ship consumer rules in their AARs.
 # Only reflection surfaces that R8 cannot infer need explicit keep rules.
 

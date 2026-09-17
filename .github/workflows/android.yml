@@ -167,14 +167,34 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run connected tests
+      # Signed release APK from the build job — installed on the emulator for
+      # the launch smoke test below (PR builds have no artifact and skip it).
+      - name: Download signed release APK for smoke test
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-cloud-release-signed-v2
+          path: release-apk/
+
+      - name: Run connected tests + release launch smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash ./gradlew :app:connectedDebugAndroidTest --stacktrace
+          script: |
+            bash ./gradlew :app:connectedDebugAndroidTest --stacktrace
+            bash .github/scripts/release-smoke-test.sh
+
+      - name: Upload release smoke logcat
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-logcat
+          path: release-smoke-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload connected test results
         if: always()

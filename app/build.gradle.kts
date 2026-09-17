@@ -31,10 +31,14 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the R8 release: minified + resource-shrunk APK with full
-        // keep rules (Retrofit, kotlinx.serialization, stack-trace lines).
-        versionCode = 10
-        versionName = "2.5.0"
+        // v2.5.1 hotfix (versionCode 11): R8 minification is DISABLED after a
+        // field-reported startup crash on the minified v2.5.0 build (10) — the
+        // minify+shrink config was the only delta against the working v2.4.0.
+        // The keep-rule set (proguard-rules.pro) and the new CI release-launch
+        // smoke test stay in place so R8 can be re-enabled later against a
+        // real emulator stack trace instead of guesswork.
+        versionCode = 11
+        versionName = "2.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -54,11 +58,11 @@ android {
     buildTypes {
         release {
             isDebuggable = false
-            // R8 minify + resource shrinking — smaller APK, dead code removed.
-            // Keep rules in app/proguard-rules.pro cover Retrofit/kotlinx
-            // serialization reflection surfaces.
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // DISABLED in v2.5.1: minified release crashed on launch in the
+            // field (see versionCode comment). Re-enable only after the CI
+            // release smoke test passes with minify ON, on a real trace.
+            isMinifyEnabled = false
+            isShrinkResources = false
             if (hasReleaseSigning) {
                 // v2 PKCS12 identity — never the debug keystore, never the
                 // retired pre-v2 key.
