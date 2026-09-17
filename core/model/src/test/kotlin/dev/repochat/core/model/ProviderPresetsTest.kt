@@ -59,4 +59,31 @@ class ProviderPresetsTest {
         assertTrue(groq.supportsJsonResponseFormat)
         assertTrue(groq.extraHeaders.isEmpty())
     }
+
+    @Test
+    fun `cloudflare template matches after account id replaced`() {
+        val actual = "https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1"
+        val matched = matchOpenAiPreset(actual)
+        assertEquals("Cloudflare Workers AI", matched.label)
+        assertTrue(matched.isTemplate)
+    }
+
+    @Test
+    fun `vertex template matches after project id replaced`() {
+        val actual = "https://aiplatform.googleapis.com/v1/projects/my-proj/locations/asia-south1/endpoints/openapi"
+        val matched = matchOpenAiPreset(actual)
+        assertEquals("Firebase (Vertex Gemini)", matched.label)
+    }
+
+    @Test
+    fun `new gateway presets are present`() {
+        val labels = KNOWN_OPENAI_PROVIDERS.map { it.label }
+        assertTrue(labels.containsAll(listOf(
+            "Google Gemini", "GitHub Models", "DeepSeek", "Mistral", "xAI Grok", "Vercel AI Gateway",
+        )))
+        assertEquals("https://generativelanguage.googleapis.com/v1beta/openai",
+            KNOWN_OPENAI_PROVIDERS.first { it.label == "Google Gemini" }.baseUrl)
+        assertEquals("https://models.github.ai/inference",
+            KNOWN_OPENAI_PROVIDERS.first { it.label == "GitHub Models" }.baseUrl)
+    }
 }

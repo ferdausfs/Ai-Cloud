@@ -76,6 +76,7 @@ import dev.repochat.core.model.ConnectionType
 import dev.repochat.core.model.InstalledSkill
 import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
 import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
+import dev.repochat.core.model.ModelCapabilities
 import dev.repochat.core.model.ModelPriceClass
 import dev.repochat.core.model.ModelPricing
 import dev.repochat.core.model.ServiceConnection
@@ -507,17 +508,20 @@ private fun ConnectionEditor(
 
             Spacer(Modifier.height(10.dp))
             val isCustom = matched.baseUrl.isEmpty()
+            val baseUrlEditable = isCustom || matched.isTemplate
             OutlinedTextField(
                 value = connection.baseUrl,
-                onValueChange = { if (isCustom) onChange(connection.copy(baseUrl = it)) },
+                onValueChange = { if (baseUrlEditable) onChange(connection.copy(baseUrl = it)) },
                 label = { Text(stringResource(R.string.settings_base_url)) },
                 singleLine = true,
-                readOnly = !isCustom,
-                enabled = isCustom,
+                readOnly = !baseUrlEditable,
+                enabled = baseUrlEditable,
                 modifier = Modifier.fillMaxWidth(),
                 supportingText = {
-                    if (!isCustom) {
-                        Text(stringResource(R.string.settings_base_url_locked))
+                    when {
+                        matched.isTemplate && matched.baseUrlHint != null ->
+                            Text(matched.baseUrlHint.orEmpty())
+                        !baseUrlEditable -> Text(stringResource(R.string.settings_base_url_locked))
                     }
                 },
             )
@@ -594,6 +598,20 @@ private fun ConnectionEditor(
                 if (pick.isNotEmpty()) onSelectModel(pick)
             },
         )
+
+        // Capability readout for the current model id — shows what the agent
+        // can do with this connection (vision input, image generation, etc.).
+        if (connection.modelName.isNotBlank()) {
+            val caps = ModelCapabilities.labels(connection.modelName)
+            if (caps.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Capabilities: $caps",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
