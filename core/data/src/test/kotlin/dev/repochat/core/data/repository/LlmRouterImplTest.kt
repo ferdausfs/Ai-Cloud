@@ -88,6 +88,17 @@ class LlmRouterImplTest {
                     url: String,
                     headers: Map<String, String>,
                 ) = error("not used")
+                override suspend fun generateImage(
+                    url: String,
+                    body: dev.repochat.core.data.remote.OpenAiImageRequestDto,
+                    headers: Map<String, String>,
+                ) = error("not used")
+                override suspend fun download(url: String): okhttp3.ResponseBody = error("not used")
+                override suspend fun speech(
+                    url: String,
+                    body: dev.repochat.core.data.remote.OpenAiSpeechRequestDto,
+                    headers: Map<String, String>,
+                ): okhttp3.ResponseBody = error("not used")
             },
         )
         val router = LlmRouterImpl(settings, ollama, openAi)

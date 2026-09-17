@@ -21,6 +21,8 @@
     <string name="settings_skills_delete">Remove skill</string>
     <string name="settings_skills_enable">Enable skill</string>
     <string name="settings_skills_source">Source</string>
+    <string name="chat_image_mode">Generate an image with this model</string>
+    <string name="chat_input_hint_image">Describe the image to generate…</string>
     <string name="settings_save">Save settings</string>
     <string name="settings_saved">Saved — stored encrypted with Android Keystore</string>
     <string name="settings_continue">Browse repositories</string>

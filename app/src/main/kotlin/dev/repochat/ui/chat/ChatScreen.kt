@@ -58,6 +58,7 @@ import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.HourglassEmpty
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.LinkOff
@@ -114,6 +115,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.repochat.R
+import dev.repochat.core.model.ModelCapability
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.MessageStatus
@@ -449,6 +451,9 @@ fun ChatScreen(
                             branch = workingBranch,
                             onApprove = viewModel::approveChange,
                             onReject = viewModel::rejectChange,
+                            showSpeak = message.role == dev.repochat.core.model.ChatRole.AI &&
+                                ModelCapability.AUDIO_GEN in state.activeCapabilities,
+                            onSpeak = viewModel::speak,
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -540,11 +545,16 @@ fun ChatScreen(
                 autoFixUntilCiGreen = state.autoFixUntilCiGreen,
                 autoFixActive = state.autoFixActive,
                 onAutoFixChange = viewModel::setAutoFixUntilCiGreen,
-                inputHint = if (hasRepo) {
+                inputHint = if (state.imageMode) {
+                    stringResource(R.string.chat_input_hint_image)
+                } else if (hasRepo) {
                     stringResource(R.string.chat_input_hint)
                 } else {
                     stringResource(R.string.chat_input_hint_general)
                 },
+                imageModeAvailable = ModelCapability.IMAGE_GEN in state.activeCapabilities,
+                imageMode = state.imageMode,
+                onToggleImageMode = viewModel::toggleImageMode,
                 onAttach = {
                     pickFile.launch(
                         arrayOf(
@@ -907,6 +917,9 @@ private fun BottomBar(
     autoFixActive: Boolean,
     onAutoFixChange: (Boolean) -> Unit,
     inputHint: String,
+    imageModeAvailable: Boolean,
+    imageMode: Boolean,
+    onToggleImageMode: () -> Unit,
     onAttach: () -> Unit,
     onRemoveAttachment: () -> Unit,
     onSend: () -> Unit,
@@ -1022,6 +1035,22 @@ private fun BottomBar(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (imageModeAvailable) {
+                        IconButton(
+                            onClick = onToggleImageMode,
+                            modifier = Modifier.size(44.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Image,
+                                contentDescription = stringResource(R.string.chat_image_mode),
+                                tint = if (imageMode) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = onAttach,
                         modifier = Modifier.size(44.dp),

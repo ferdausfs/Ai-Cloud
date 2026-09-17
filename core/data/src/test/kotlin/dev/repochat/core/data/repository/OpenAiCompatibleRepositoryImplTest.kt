@@ -3,6 +3,9 @@ package dev.repochat.core.data.repository
 import dev.repochat.core.data.remote.OpenAiChatRequestDto
 import dev.repochat.core.data.remote.OpenAiChatResponseDto
 import dev.repochat.core.data.remote.OpenAiCompatibleApi
+import dev.repochat.core.data.remote.OpenAiImageRequestDto
+import dev.repochat.core.data.remote.OpenAiImagesResponseDto
+import dev.repochat.core.data.remote.OpenAiSpeechRequestDto
 import dev.repochat.core.data.remote.OpenAiErrorBodyDto
 import dev.repochat.core.data.remote.OpenAiMessageDto
 import dev.repochat.core.data.remote.OpenAiModelDto
@@ -79,7 +82,17 @@ private class RecordingApi : OpenAiCompatibleApi {
         lastModelsUrl = url
         lastModelsHeaders = headers
         return modelsResponse
-    }
+    }    override suspend fun generateImage(
+        url: String,
+        body: OpenAiImageRequestDto,
+        headers: Map<String, String>,
+    ): OpenAiImagesResponseDto = error("not used")
+    override suspend fun download(url: String): okhttp3.ResponseBody = error("not used")
+    override suspend fun speech(
+        url: String,
+        body: OpenAiSpeechRequestDto,
+        headers: Map<String, String>,
+    ): okhttp3.ResponseBody = error("not used")
 }
 
 class OpenAiCompatibleRepositoryImplTest {
@@ -132,6 +145,17 @@ class OpenAiCompatibleRepositoryImplTest {
                     okhttp3.ResponseBody.create(null, """{"error":{"message":"bad key"}}"""),
                 ),
             )
+             override suspend fun generateImage(
+                url: String,
+                body: OpenAiImageRequestDto,
+                headers: Map<String, String>,
+            ) = error("not used")
+            override suspend fun download(url: String): okhttp3.ResponseBody = error("not used")
+            override suspend fun speech(
+                url: String,
+                body: OpenAiSpeechRequestDto,
+                headers: Map<String, String>,
+            ): okhttp3.ResponseBody = error("not used")
         }
         val repo = OpenAiCompatibleRepositoryImpl(throwing)
         try {
@@ -159,6 +183,17 @@ class OpenAiCompatibleRepositoryImplTest {
                 url: String,
                 headers: Map<String, String>,
             ): OpenAiModelsDto = error("network down")
+             override suspend fun generateImage(
+                url: String,
+                body: OpenAiImageRequestDto,
+                headers: Map<String, String>,
+            ) = error("not used")
+            override suspend fun download(url: String): okhttp3.ResponseBody = error("not used")
+            override suspend fun speech(
+                url: String,
+                body: OpenAiSpeechRequestDto,
+                headers: Map<String, String>,
+            ): okhttp3.ResponseBody = error("not used")
         }
         val repo = OpenAiCompatibleRepositoryImpl(throwing)
         assertTrue(

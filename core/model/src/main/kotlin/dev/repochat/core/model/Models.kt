@@ -144,7 +144,7 @@ data class RepoFileTree(val entries: List<TreeEntry>, val truncated: Boolean)
 
 enum class ChatRole { USER, AI }
 
-enum class MessageKind { TEXT, READ_FILE, WRITE_FILE }
+enum class MessageKind { TEXT, READ_FILE, WRITE_FILE, GENERATED_IMAGE, GENERATED_AUDIO }
 
 enum class MessageStatus { NONE, PENDING, APPROVED, REJECTED }
 
@@ -275,6 +275,13 @@ data class TurnRequest(
     val autoFixMaxAttempts: Int = 5,
     /** Force a specific LLM connection for this turn (manual chip/picker). */
     val preferredConnectionId: String? = null,
+    /**
+     * One-shot media actions (not chat modes): when set, the turn produces
+     * media instead of a conversational reply. [imagePrompt] generates an
+     * image, [speechText] synthesizes speech from the given text.
+     */
+    val imagePrompt: String? = null,
+    val speechText: String? = null,
 ) {
     val isGeneral: Boolean get() = mode == ChatMode.GENERAL
 }

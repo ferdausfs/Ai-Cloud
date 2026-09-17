@@ -13,6 +13,8 @@ import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
 import dev.repochat.core.model.ChatMode
+import dev.repochat.core.model.ModelCapability
+import dev.repochat.core.model.ModelCapabilities
 import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.PullRequestInfo
@@ -103,6 +105,10 @@ data class ChatUiState(
     val jobLog: String? = null,
     val jobLogLoading: Boolean = false,
     val jobLogError: String? = null,
+    /** Capabilities of the active model — drives composer affordances. */
+    val activeCapabilities: Set<ModelCapability> = emptySet(),
+    /** One-shot image-generation affordance (not a chat mode). */
+    val imageMode: Boolean = false,
 )
 
 /**
@@ -142,12 +148,18 @@ class ChatViewModel @Inject constructor(
             settingsRepository.settings.collect { s ->
                 val ordered = s.llmConnectionsOrdered()
                 val active = s.activeLlmOrFirst()
+                val caps = ModelCapabilities.of(
+                    active?.modelName?.trim().orEmpty().ifBlank { s.modelName.trim() },
+                )
                 _uiState.update {
                     it.copy(
                         llmProviders = ordered,
                         activeProviderId = active?.id,
                         activeProviderLabel = active?.label?.ifBlank { active.modelName }
                             ?: s.modelName.ifBlank { "—" },
+                        activeCapabilities = caps,
+                        // Capability vanished with a provider/model switch.
+                        imageMode = if (ModelCapability.IMAGE_GEN in caps) it.imageMode else false,
                     )
                 }
             }
@@ -394,6 +406,45 @@ class ChatViewModel @Inject constructor(
     fun send(text: String, attachment: ChatAttachment? = null) =
         sendInternal(text, attachment, resend = false)
 
+    /** Toggles the one-shot image-generation affordance in the composer. */
+    fun toggleImageMode() {
+        if (ModelCapability.IMAGE_GEN !in _uiState.value.activeCapabilities) return
+        _uiState.update { it.copy(imageMode = !it.imageMode) }
+    }
+
+    /**
+     * Speaks [text] aloud via the active audio model — a one-shot media turn
+     * with no conversational reply.
+     */
+    fun speak(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        val session = _uiState.value.session ?: return
+        val state = _uiState.value
+        if (state.typing || state.approvalPending || state.approving) return
+        if (turnCoordinator.state.value.active) {
+            showSnackbar(R.string.chat_turn_in_progress)
+            return
+        }
+        viewModelScope.launch {
+            val started = turnCoordinator.startTurn(
+                TurnRequest(
+                    repoKey = boundKey.ifBlank { session.repoKey },
+                    owner = session.owner,
+                    repo = session.repo,
+                    defaultBranch = session.defaultBranch,
+                    workingBranch = session.workingBranch,
+                    sessionId = session.sessionId,
+                    userText = "Read this aloud",
+                    mode = if (session.isGeneral) ChatMode.GENERAL else ChatMode.REPO,
+                    preferredConnectionId = state.activeProviderId,
+                    speechText = trimmed,
+                ),
+            )
+            if (!started) showSnackbar(R.string.chat_turn_in_progress)
+        }
+    }
+
     fun retry() {
         turnCoordinator.lastUserInput()?.let {
             sendInternal(
@@ -424,12 +475,14 @@ class ChatViewModel @Inject constructor(
             return
         }
         val repoBound = !session.isGeneral && session.owner.isNotBlank()
+        val imageTurn = state.imageMode && attachment == null && trimmed.isNotEmpty()
 
         val displayText = buildString {
             if (attachment != null) {
                 append("📎 ").append(attachment.displayName)
                 if (trimmed.isNotEmpty()) append('\n')
             }
+            if (imageTurn) append("🖼 ")
             append(trimmed)
         }.ifBlank { "📎 ${attachment?.displayName.orEmpty()}" }
 
@@ -468,7 +521,12 @@ class ChatViewModel @Inject constructor(
                 mode = if (repoBound) ChatMode.REPO else ChatMode.GENERAL,
                 autoFixUntilCiGreen = autoFix,
                 preferredConnectionId = _uiState.value.activeProviderId,
+                imagePrompt = if (imageTurn) trimmed else null,
             )
+            if (imageTurn) {
+                // One-shot affordance: reset immediately after send.
+                _uiState.update { it.copy(imageMode = false) }
+            }
             // Runs in the application-scoped coordinator + FGS — not viewModelScope.
             val started = turnCoordinator.startTurn(request)
             if (!started) {

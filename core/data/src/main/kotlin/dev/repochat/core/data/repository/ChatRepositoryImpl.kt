@@ -178,6 +178,32 @@ class ChatRepositoryImpl @Inject constructor(
         return id
     }
 
+    override suspend fun appendAiMedia(
+        repoKey: String,
+        sessionId: String,
+        kind: MessageKind,
+        text: String?,
+        base64: String?,
+    ): Long {
+        require(kind == MessageKind.GENERATED_IMAGE || kind == MessageKind.GENERATED_AUDIO) {
+            "appendAiMedia only supports GENERATED_IMAGE / GENERATED_AUDIO"
+        }
+        val id = messageDao.insert(
+            ChatMessageEntity(
+                repoKey = repoKey,
+                sessionId = sessionId,
+                role = ChatRole.AI.name,
+                kind = kind.name,
+                text = text,
+                base64Content = base64,
+                status = MessageStatus.NONE.name,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        sessionDao.touch(repoKey, System.currentTimeMillis())
+        return id
+    }
+
     override suspend fun appendAiWritePending(repoKey: String, sessionId: String, change: PendingChange): Long {
         val id = messageDao.insert(
             ChatMessageEntity(

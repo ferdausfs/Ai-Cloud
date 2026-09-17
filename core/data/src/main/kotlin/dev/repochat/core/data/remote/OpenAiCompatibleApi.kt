@@ -36,6 +36,31 @@ interface OpenAiCompatibleApi {
         @retrofit2.http.Url url: String,
         @retrofit2.http.HeaderMap headers: Map<String, String>,
     ): OpenAiModelsDto
+
+    /**
+     * Image generation (OpenAI `images/generations` shape). Response carries
+     * either `b64_json` or a temporary `url` — both handled upstream.
+     */
+    @retrofit2.http.POST
+    suspend fun generateImage(
+        @retrofit2.http.Url url: String,
+        @retrofit2.http.Body body: OpenAiImageRequestDto,
+        @retrofit2.http.HeaderMap headers: Map<String, String>,
+    ): OpenAiImagesResponseDto
+
+    /** Downloads a generated-image URL returned instead of inline base64. */
+    @retrofit2.http.Streaming
+    @retrofit2.http.GET
+    suspend fun download(@retrofit2.http.Url url: String): okhttp3.ResponseBody
+
+    /** Text-to-speech (OpenAI `audio/speech` shape) — binary audio body. */
+    @retrofit2.http.Streaming
+    @retrofit2.http.POST
+    suspend fun speech(
+        @retrofit2.http.Url url: String,
+        @retrofit2.http.Body body: OpenAiSpeechRequestDto,
+        @retrofit2.http.HeaderMap headers: Map<String, String>,
+    ): okhttp3.ResponseBody
 }
 
 @Serializable
@@ -99,5 +124,36 @@ data class OpenAiModelsDto(
 @Serializable
 data class OpenAiModelDto(
     val id: String = "",
+)
+
+@Serializable
+data class OpenAiImageRequestDto(
+    val model: String,
+    val prompt: String,
+    val n: Int = 1,
+    val size: String = "1024x1024",
+    @SerialName("response_format") val responseFormat: String? = "b64_json",
+)
+
+@Serializable
+data class OpenAiImagesResponseDto(
+    val data: List<OpenAiImageDto> = emptyList(),
+    val error: OpenAiErrorBodyDto? = null,
+)
+
+@Serializable
+data class OpenAiImageDto(
+    @SerialName("b64_json") val b64Json: String? = null,
+    val url: String? = null,
+    @SerialName("revised_prompt") val revisedPrompt: String? = null,
+)
+
+@Serializable
+data class OpenAiSpeechRequestDto(
+    val model: String,
+    val input: String,
+    val voice: String = "alloy",
+    @SerialName("response_format") val responseFormat: String = "mp3",
+    val speed: Double? = null,
 )
 

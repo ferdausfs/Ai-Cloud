@@ -5,7 +5,10 @@ import dev.repochat.core.domain.OllamaService
 import dev.repochat.core.domain.SettingsRepository
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ConnectionType
+import dev.repochat.core.model.GeneratedMedia
 import dev.repochat.core.model.LlmChatResult
+import dev.repochat.core.model.ModelCapability
+import dev.repochat.core.model.ModelCapabilities
 import dev.repochat.core.model.OllamaMessage
 import dev.repochat.core.model.ServiceConnection
 import javax.inject.Inject
@@ -216,5 +219,96 @@ class LlmRouterImpl @Inject constructor(
         val m = e.userMessage.lowercase()
         return "rate limit" in m || "too many requests" in m || "quota" in m ||
             "daily limit" in m || "tokens per day" in m
+    }
+
+    /* --------------------------- media generation --------------------------- */
+
+    override fun hasCapability(capability: ModelCapability): Boolean {
+        val snap = settings.cached()
+        return snap.llmConnectionsOrdered().any { conn ->
+            conn.type == ConnectionType.OPENAI_COMPATIBLE &&
+                ModelCapabilities.supports(conn.modelName, capability)
+        }
+    }
+
+    override suspend fun generateImage(
+        prompt: String,
+        preferredConnectionId: String?,
+    ): GeneratedMedia {
+        val candidates = mediaQueue(
+            preferredConnectionId,
+            ModelCapability.IMAGE_GEN,
+            "image generation",
+        )
+        var lastError: AppError? = null
+        for (conn in candidates) {
+            try {
+                return openAi.generateImage(conn, prompt)
+            } catch (e: AppError.RateLimited) {
+                lastError = e
+                continue
+            } catch (e: AppError) {
+                if (isRateLimitLike(e) && conn != candidates.last()) {
+                    lastError = e
+                    continue
+                }
+                throw e
+            }
+        }
+        throw lastError ?: AppError.Configuration("Every configured image provider failed.")
+    }
+
+    override suspend fun synthesizeSpeech(
+        text: String,
+        preferredConnectionId: String?,
+    ): GeneratedMedia {
+        val candidates = mediaQueue(
+            preferredConnectionId,
+            ModelCapability.AUDIO_GEN,
+            "speech synthesis",
+        )
+        var lastError: AppError? = null
+        for (conn in candidates) {
+            try {
+                return openAi.speech(conn, text)
+            } catch (e: AppError.RateLimited) {
+                lastError = e
+                continue
+            } catch (e: AppError) {
+                if (isRateLimitLike(e) && conn != candidates.last()) {
+                    lastError = e
+                    continue
+                }
+                throw e
+            }
+        }
+        throw lastError ?: AppError.Configuration("Every configured speech provider failed.")
+    }
+
+    /**
+     * Ordered OPENAI_COMPATIBLE connections whose model advertises
+     * [capability], honoring the preferred/active ordering first.
+     */
+    private suspend fun mediaQueue(
+        preferredConnectionId: String?,
+        capability: ModelCapability,
+        featureLabel: String,
+    ): List<ServiceConnection> {
+        val snap = settings.current()
+        val ordered = snap.llmConnectionsOrdered()
+            .filter { it.type == ConnectionType.OPENAI_COMPATIBLE }
+            .filter { ModelCapabilities.supports(it.modelName, capability) }
+        if (ordered.isEmpty()) {
+            throw AppError.Configuration(
+                "$featureLabel needs a model that supports it (e.g. an image or TTS model) — " +
+                    "no configured connection does. Add one in Settings.",
+            )
+        }
+        val preferred = preferredConnectionId?.let { id -> ordered.firstOrNull { it.id == id } }
+            ?: snap.activeProviderId?.let { id -> ordered.firstOrNull { it.id == id } }
+        return buildList {
+            preferred?.let { add(it) }
+            ordered.filter { it.id != preferred?.id }.forEach { add(it) }
+        }
     }
 }

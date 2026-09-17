@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -93,6 +94,8 @@ fun MessageItem(
     branch: String?,
     onApprove: () -> Unit,
     onReject: () -> Unit,
+    showSpeak: Boolean = false,
+    onSpeak: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val isUser = message.role == ChatRole.USER
@@ -105,6 +108,8 @@ fun MessageItem(
                 text = message.text.orEmpty(),
                 isUser = isUser,
                 messageId = message.id,
+                showSpeak = showSpeak,
+                onSpeak = onSpeak,
             )
 
             MessageKind.READ_FILE -> ReadFileCard(message = message)
@@ -118,6 +123,10 @@ fun MessageItem(
                 onApprove = onApprove,
                 onReject = onReject,
             )
+
+            MessageKind.GENERATED_IMAGE -> GeneratedImageCard(message = message)
+
+            MessageKind.GENERATED_AUDIO -> GeneratedAudioCard(message = message)
         }
     }
 }
@@ -128,6 +137,8 @@ fun ChatBubble(
     isUser: Boolean,
     messageId: Long = 0L,
     modifier: Modifier = Modifier,
+    showSpeak: Boolean = false,
+    onSpeak: (String) -> Unit = {},
 ) {
     // HuggingChat-like: soft user tint, plain assistant text.
     val shape = RoundedCornerShape(12.dp)
@@ -156,13 +167,30 @@ fun ChatBubble(
             }
         } else {
             val asLog = preferLogCodeBlock(text)
-            MarkdownMessageContent(
-                text = text,
-                contentColor = contentColor,
-                isOnPrimary = false,
-                forceCodeLanguage = if (asLog) "log" else null,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            )
+            Column {
+                MarkdownMessageContent(
+                    text = text,
+                    contentColor = contentColor,
+                    isOnPrimary = false,
+                    forceCodeLanguage = if (asLog) "log" else null,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                )
+                if (showSpeak && text.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { onSpeak(text) }, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                Icons.Rounded.GraphicEq,
+                                contentDescription = "Read aloud",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

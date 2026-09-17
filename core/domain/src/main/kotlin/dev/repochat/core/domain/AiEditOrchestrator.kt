@@ -55,6 +55,17 @@ class AiEditOrchestrator @Inject constructor(
             )
         }
 
+        // One-shot media turns (image generation / speech) bypass the JSON
+        // tool loop entirely — available in every conversation kind.
+        request.imagePrompt?.let { prompt ->
+            runImageGenerationTurn(request, prompt)
+            return@channelFlow
+        }
+        request.speechText?.let { text ->
+            runSpeechTurn(request, text)
+            return@channelFlow
+        }
+
         if (request.isGeneral) {
             runGeneralTurn(request, model)
             return@channelFlow
@@ -423,6 +434,42 @@ class AiEditOrchestrator @Inject constructor(
             is AiAction.Reply -> action.text.ifBlank { trimmed }
             else -> trimmed
         }
+    }
+
+    /**
+     * One-shot image generation: prompt → images/generations → media message.
+     * Available in every conversation kind — the user's message is already
+     * persisted by the caller before the turn starts.
+     */
+    private suspend fun ProducerScope<TurnEvent>.runImageGenerationTurn(
+        request: TurnRequest,
+        prompt: String,
+    ) {
+        send(TurnEvent.Working("Generating image"))
+        val media = llm.generateImage(prompt, request.preferredConnectionId)
+        chat.appendAiMedia(
+            request.repoKey,
+            request.sessionId,
+            MessageKind.GENERATED_IMAGE,
+            text = prompt,
+            base64 = media.base64,
+        )
+    }
+
+    /** One-shot speech synthesis: text → audio/speech → media message. */
+    private suspend fun ProducerScope<TurnEvent>.runSpeechTurn(
+        request: TurnRequest,
+        text: String,
+    ) {
+        send(TurnEvent.Working("Synthesizing speech"))
+        val media = llm.synthesizeSpeech(text, request.preferredConnectionId)
+        chat.appendAiMedia(
+            request.repoKey,
+            request.sessionId,
+            MessageKind.GENERATED_AUDIO,
+            text = text.take(200).ifBlank { "Audio" },
+            base64 = media.base64,
+        )
     }
 
     private companion object {

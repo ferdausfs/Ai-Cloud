@@ -50,3 +50,13 @@ data class ParsedSkill(
     val license: String? = null,
     val allowedTools: String? = null,
 )
+
+/**
+ * Media produced by a generation endpoint (image or speech). Base64 payload
+ * is stored directly on the chat message row.
+ */
+data class GeneratedMedia(
+    val base64: String,
+    val mimeType: String,
+    val providerLabel: String,
+)

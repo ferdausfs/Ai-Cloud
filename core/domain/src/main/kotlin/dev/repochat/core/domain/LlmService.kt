@@ -1,6 +1,8 @@
 package dev.repochat.core.domain
 
 import dev.repochat.core.model.LlmChatResult
+import dev.repochat.core.model.ModelCapability
+import dev.repochat.core.model.ModelCapabilities
 import dev.repochat.core.model.OllamaMessage
 import dev.repochat.core.model.ServiceConnection
 
@@ -47,4 +49,34 @@ interface LlmService {
      * genuinely listed no models.
      */
     suspend fun listModels(connection: ServiceConnection): List<String>
+
+    /**
+     * Generates an image for [prompt] using the connection's image model.
+     * Throws [dev.repochat.core.model.AppError.Configuration] when no
+     * configured connection can generate images.
+     */
+    suspend fun generateImage(
+        prompt: String,
+        preferredConnectionId: String? = null,
+    ): dev.repochat.core.model.GeneratedMedia =
+        throw dev.repochat.core.model.AppError.Configuration(
+            "Image generation is not available — no configured model supports it.",
+        )
+
+    /**
+     * Synthesizes speech audio for [text]. Throws
+     * [dev.repochat.core.model.AppError.Configuration] when no configured
+     * connection supports audio generation.
+     */
+    suspend fun synthesizeSpeech(
+        text: String,
+        preferredConnectionId: String? = null,
+    ): dev.repochat.core.model.GeneratedMedia =
+        throw dev.repochat.core.model.AppError.Configuration(
+            "Speech synthesis is not available — no configured model supports it.",
+        )
+
+    /** Whether any configured LLM connection offers [capability]. */
+    fun hasCapability(capability: ModelCapability): Boolean =
+        false // routers override; default keeps fakes trivially honest
 }

@@ -4,6 +4,7 @@ import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.ChatMessage
 import dev.repochat.core.model.ConversationSummary
+import dev.repochat.core.model.MessageKind
 import dev.repochat.core.model.MessageStatus
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.RepoSession
@@ -54,6 +55,18 @@ interface ChatRepository {
     suspend fun appendAiText(repoKey: String, sessionId: String, text: String): Long
 
     suspend fun appendAiRead(repoKey: String, sessionId: String, path: String): Long
+
+    /**
+     * Persists a generated-media message (image / audio). [text] carries the
+     * caption (usually the prompt); [base64] is the raw media payload.
+     */
+    suspend fun appendAiMedia(
+        repoKey: String,
+        sessionId: String,
+        kind: MessageKind,
+        text: String?,
+        base64: String?,
+    ): Long
 
     suspend fun appendAiWritePending(repoKey: String, sessionId: String, change: PendingChange): Long
 

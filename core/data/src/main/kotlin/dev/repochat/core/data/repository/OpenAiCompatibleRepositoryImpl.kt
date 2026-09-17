@@ -1,6 +1,8 @@
 package dev.repochat.core.data.repository
 
 import dev.repochat.core.data.remote.OpenAiChatRequestDto
+import dev.repochat.core.data.remote.OpenAiImageRequestDto
+import dev.repochat.core.data.remote.OpenAiSpeechRequestDto
 import dev.repochat.core.data.remote.OpenAiCompatibleApi
 import dev.repochat.core.data.remote.OpenAiMessageDto
 import dev.repochat.core.data.remote.OpenAiResponseFormatDto
@@ -141,6 +143,85 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
             }
             return text
         }
+    }
+
+    /**
+     * Image generation through the OpenAI-compatible `images/generations`
+     * endpoint. Providers either inline base64 (`b64_json`) or return a
+     * temporary URL — both are normalized into [GeneratedMedia].
+     */
+    suspend fun generateImage(
+        connection: ServiceConnection,
+        prompt: String,
+    ): dev.repochat.core.model.GeneratedMedia {
+        val base = connection.baseUrl.trim().trimEnd('/')
+        if (base.isBlank()) {
+            throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no base URL.")
+        }
+        val model = connection.modelName.trim()
+        if (model.isBlank()) {
+            throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no model name.")
+        }
+        val preset = matchOpenAiPreset(base)
+        val url = "$base/images/generations"
+        val response = mapHttpErrors(AppError.Provider.LLM) {
+            api.generateImage(
+                url,
+                OpenAiImageRequestDto(model = model, prompt = prompt),
+                headersFor(connection, preset.extraHeaders),
+            )
+        }
+        response.error?.message?.takeIf { it.isNotBlank() }?.let {
+            throw AppError.Api(AppError.Provider.LLM, null, it)
+        }
+        val image = response.data.firstOrNull()
+            ?: throw AppError.Api(AppError.Provider.LLM, null, "Provider returned no image.")
+        return when {
+            !image.b64Json.isNullOrEmpty() ->
+                dev.repochat.core.model.GeneratedMedia(image.b64Json, "image/png", connection.label)
+            !image.url.isNullOrEmpty() -> {
+                val bytes = mapHttpErrors(AppError.Provider.LLM) { api.download(image.url) }
+                    .use { it.bytes() }
+                dev.repochat.core.model.GeneratedMedia(
+                    android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
+                    "image/png",
+                    connection.label,
+                )
+            }
+            else -> throw AppError.Api(AppError.Provider.LLM, null, "Provider returned an empty image.")
+        }
+    }
+
+    /** Text-to-speech through the OpenAI-compatible `audio/speech` endpoint. */
+    suspend fun speech(
+        connection: ServiceConnection,
+        text: String,
+    ): dev.repochat.core.model.GeneratedMedia {
+        val base = connection.baseUrl.trim().trimEnd('/')
+        if (base.isBlank()) {
+            throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no base URL.")
+        }
+        val model = connection.modelName.trim()
+        if (model.isBlank()) {
+            throw AppError.Configuration("OpenAI-compatible connection \"${connection.label}\" has no model name.")
+        }
+        val preset = matchOpenAiPreset(base)
+        val url = "$base/audio/speech"
+        val bytes = mapHttpErrors(AppError.Provider.LLM) {
+            api.speech(
+                url,
+                OpenAiSpeechRequestDto(model = model, input = text.take(4_000)),
+                headersFor(connection, preset.extraHeaders),
+            )
+        }.use { it.bytes() }
+        if (bytes.isEmpty()) {
+            throw AppError.Api(AppError.Provider.LLM, null, "Provider returned no audio.")
+        }
+        return dev.repochat.core.model.GeneratedMedia(
+            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
+            "audio/mpeg",
+            connection.label,
+        )
     }
 
     /**

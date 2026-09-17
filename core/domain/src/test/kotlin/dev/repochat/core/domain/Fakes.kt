@@ -63,6 +63,11 @@ class FakeLlmService(
     var lastJsonMode: Boolean? = null
     var callCount: Int = 0
 
+    /** When set, [generateImage] returns this base64 payload instead of throwing. */
+    var imagePayload: String? = null
+    var lastImagePrompt: String? = null
+    var lastSpeechText: String? = null
+
     override suspend fun chat(
         messages: List<OllamaMessage>,
         jsonMode: Boolean,
@@ -86,6 +91,24 @@ class FakeLlmService(
     override suspend fun listModels(
         connection: dev.repochat.core.model.ServiceConnection,
     ): List<String> = emptyList()
+
+    override suspend fun generateImage(
+        prompt: String,
+        preferredConnectionId: String?,
+    ): dev.repochat.core.model.GeneratedMedia {
+        lastImagePrompt = prompt
+        val payload = imagePayload ?: throw AppError.Configuration("no image model")
+        return dev.repochat.core.model.GeneratedMedia(payload, "image/png", label)
+    }
+
+    override suspend fun synthesizeSpeech(
+        text: String,
+        preferredConnectionId: String?,
+    ): dev.repochat.core.model.GeneratedMedia {
+        lastSpeechText = text
+        val payload = imagePayload ?: throw AppError.Configuration("no audio model")
+        return dev.repochat.core.model.GeneratedMedia(payload, "audio/mpeg", label)
+    }
 }
 
 class FakeGithubService : GithubService {
@@ -316,6 +339,15 @@ class FakeChatRepository(
 
     override suspend fun appendAiRead(repoKey: String, sessionId: String, path: String): Long =
         append(ChatMessage(nextId++, repoKey, sessionId, ChatRole.AI, MessageKind.READ_FILE, null, path, null, null, null, MessageStatus.NONE, System.currentTimeMillis()))
+
+    override suspend fun appendAiMedia(
+        repoKey: String,
+        sessionId: String,
+        kind: dev.repochat.core.model.MessageKind,
+        text: String?,
+        base64: String?,
+    ): Long =
+        append(ChatMessage(nextId++, repoKey, sessionId, ChatRole.AI, kind, text, null, base64, null, null, MessageStatus.NONE, System.currentTimeMillis()))
 
     override suspend fun appendAiWritePending(repoKey: String, sessionId: String, change: PendingChange): Long =
         append(ChatMessage(nextId++, repoKey, sessionId, ChatRole.AI, MessageKind.WRITE_FILE, null, change.path, null, null, change.commitMessage, MessageStatus.PENDING, System.currentTimeMillis()))

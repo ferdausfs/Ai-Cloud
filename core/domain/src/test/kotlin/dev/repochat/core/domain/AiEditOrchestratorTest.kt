@@ -134,6 +134,42 @@ class AiEditOrchestratorTest {
     }
 
     @Test
+    fun `image prompt turn produces generated-image message without llm chat`() = runTest {
+        val ollama = FakeLlmService().apply { imagePayload = "aW1n" }
+        val chat = FakeChatRepository()
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), chat, FakeSettingsRepository(), FakeSkillRepository(),
+        )
+
+        val events = orchestrator
+            .runTurn(request().copy(imagePrompt = "a red bicycle"), MutableSharedFlow())
+            .toList()
+
+        assertEquals("a red bicycle", ollama.lastImagePrompt)
+        assertEquals(0, ollama.callCount) // chat completions never used
+        val media = chat.stored.single { it.kind == dev.repochat.core.model.MessageKind.GENERATED_IMAGE }
+        assertEquals("aW1n", media.base64Content)
+        assertTrue(events.isEmpty() || events.none { it is TurnEvent.Error })
+    }
+
+    @Test
+    fun `speech turn produces generated-audio message`() = runTest {
+        val ollama = FakeLlmService().apply { imagePayload = "YXVkaW8=" }
+        val chat = FakeChatRepository()
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), chat, FakeSettingsRepository(), FakeSkillRepository(),
+        )
+
+        orchestrator
+            .runTurn(request().copy(speechText = "hello there"), MutableSharedFlow())
+            .toList()
+
+        assertEquals("hello there", ollama.lastSpeechText)
+        val media = chat.stored.single { it.kind == dev.repochat.core.model.MessageKind.GENERATED_AUDIO }
+        assertEquals("YXVkaW8=", media.base64Content)
+    }
+
+    @Test
     fun `read then write round-trips through context and waits for approval`() = runTest {
         val ollama = FakeLlmService(
             ArrayDeque(
