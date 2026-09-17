@@ -288,4 +288,10 @@
     <string name="onboarding_done_title">You are all set</string>
     <string name="onboarding_done_body">Your provider is saved. Install skills and connect GitHub anytime from Settings.</string>
     <string name="onboarding_open_app">Open Ai Cloud</string>
+
+    <string name="crash_report_title">Last crash report</string>
+    <string name="crash_report_share">Share</string>
+    <string name="crash_report_copy">Copy</string>
+    <string name="crash_report_close">Close</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
 </resources>

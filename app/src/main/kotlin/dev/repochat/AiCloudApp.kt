@@ -11,6 +11,9 @@ import dev.repochat.turn.AiTurnService
 class AiCloudApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // First thing we do — even startup crashes get captured for the
+        // next launch's share dialog (see MainActivity).
+        CrashTrap.install(this)
         ensureTurnNotificationChannel()
     }
 

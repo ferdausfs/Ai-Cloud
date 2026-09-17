@@ -31,14 +31,15 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // v2.5.1 hotfix (versionCode 11): R8 minification is DISABLED after a
-        // field-reported startup crash on the minified v2.5.0 build (10) — the
-        // minify+shrink config was the only delta against the working v2.4.0.
-        // The keep-rule set (proguard-rules.pro) and the new CI release-launch
-        // smoke test stay in place so R8 can be re-enabled later against a
-        // real emulator stack trace instead of guesswork.
-        versionCode = 11
-        versionName = "2.5.1"
+        // v2.5.2 (versionCode 12): the R8 revert in v2.5.1 did NOT stop the
+        // field startup crash — so the crash is data/device-dependent, not
+        // (only) minification. Hardened the launch path: EncryptedSettingsStore
+        // now survives a corrupted keyset / broken Keystore (wipe+retry, then
+        // plain-prefs degradation) and CrashTrap captures any remaining crash
+        // to a shareable report dialog on the next launch. R8 stays disabled
+        // until the CI smoke test proves it green with minify ON.
+        versionCode = 12
+        versionName = "2.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
