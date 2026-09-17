@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -365,6 +366,7 @@ fun SettingsScreen(
 private fun AppearanceCard() {
     val themeViewModel: dev.repochat.ui.theme.ThemeViewModel = hiltViewModel()
     val darkOverride by themeViewModel.darkOverride.collectAsStateWithLifecycle()
+    val amoled by themeViewModel.amoled.collectAsStateWithLifecycle()
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val darkNow = darkOverride ?: systemDark
     androidx.compose.material3.Surface(
@@ -373,32 +375,57 @@ private fun AppearanceCard() {
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.DarkMode,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.settings_dark_theme),
-                    style = MaterialTheme.typography.titleSmall,
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.DarkMode,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
-                Text(
-                    text = stringResource(R.string.settings_dark_theme_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_dark_theme),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_dark_theme_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = darkNow,
+                    onCheckedChange = { themeViewModel.setDarkTheme(it) },
                 )
             }
-            Switch(
-                checked = darkNow,
-                onCheckedChange = { themeViewModel.setDarkTheme(it) },
-            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.Contrast,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_amoled),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_amoled_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = amoled,
+                    onCheckedChange = { themeViewModel.setAmoled(it) },
+                    enabled = darkNow,
+                )
+            }
         }
     }
 }

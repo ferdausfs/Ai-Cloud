@@ -258,4 +258,13 @@
     <string name="chat_voice_listening">Listening…</string>
     <string name="chat_voice_permission">Microphone permission is needed for voice input</string>
     <string name="chat_voice_error">Voice input failed — try again</string>
+    <!-- App shortcuts / appearance -->
+    <string name="shortcut_new_chat">New chat</string>
+    <string name="shortcut_new_chat_long">Start a new chat</string>
+    <string name="shortcut_repos">My repos</string>
+    <string name="shortcut_repos_long">Browse repositories</string>
+    <string name="shortcut_settings">Settings</string>
+    <string name="shortcut_settings_long">Open settings</string>
+    <string name="settings_amoled">AMOLED black</string>
+    <string name="settings_amoled_desc">True-black dark theme — saves battery on OLED screens</string>
 </resources>

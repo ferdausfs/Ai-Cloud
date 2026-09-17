@@ -22,6 +22,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.repochat.navigation.AppNavHost
 import dev.repochat.navigation.ChatRoute
 import dev.repochat.navigation.HomeRoute
+import dev.repochat.navigation.RepoPickerRoute
+import dev.repochat.navigation.SettingsRoute
 import dev.repochat.ui.theme.RepoChatTheme
 import dev.repochat.ui.theme.ThemeViewModel
 
@@ -29,10 +31,11 @@ import dev.repochat.ui.theme.ThemeViewModel
 class MainActivity : ComponentActivity() {
 
     /**
-     * Deep-link from the AI-turn notification. Held as a Compose-observable
-     * Activity field so [onNewIntent] can update it after composition starts.
+     * Deep-link / shortcut destination. Held as a Compose-observable Activity
+     * field so [onNewIntent] can update it after composition starts. Carries
+     * any type-safe nav route (chat, settings, repo picker).
      */
-    private var pendingChatRoute by mutableStateOf<ChatRoute?>(null)
+    private var pendingRoute by mutableStateOf<Any?>(null)
 
     private val themeViewModel: ThemeViewModel by viewModels<ThemeViewModel>()
 
@@ -40,15 +43,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        pendingChatRoute = chatRouteFrom(intent)
+        pendingRoute = routeFrom(intent)
 
         setContent {
             // Read the Activity field inside composition so snapshot state works.
-            val deepLink = pendingChatRoute
+            val deepLink = pendingRoute
             // In-app override wins over the system setting (null = follow system).
             val darkOverride by themeViewModel.darkOverride.collectAsStateWithLifecycle()
+            val amoled by themeViewModel.amoled.collectAsStateWithLifecycle()
             val systemDark = isSystemInDarkTheme()
-            RepoChatTheme(darkTheme = darkOverride ?: systemDark) {
+            RepoChatTheme(
+                darkTheme = darkOverride ?: systemDark,
+                amoled = amoled,
+            ) {
                 SharedTransitionLayout {
                     val navController = rememberNavController()
                     LaunchedEffect(deepLink) {
@@ -57,7 +64,7 @@ class MainActivity : ComponentActivity() {
                             popUpTo(HomeRoute) { inclusive = false }
                             launchSingleTop = true
                         }
-                        pendingChatRoute = null
+                        pendingRoute = null
                     }
                     AppNavHost(
                         navController = navController,
@@ -72,14 +79,20 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingChatRoute = chatRouteFrom(intent)
+        pendingRoute = routeFrom(intent)
+    }
+
+    private fun routeFrom(intent: Intent?): Any? = when (intent?.action) {
+        ACTION_OPEN_CHAT -> chatRouteFrom(intent)
+        ACTION_OPEN_SETTINGS -> SettingsRoute
+        ACTION_OPEN_REPOS -> RepoPickerRoute
+        else -> null
     }
 
     private fun chatRouteFrom(intent: Intent?): ChatRoute? {
-        if (intent?.action != ACTION_OPEN_CHAT) return null
-        val repoKey = intent.getStringExtra(EXTRA_REPO_KEY).orEmpty()
-        val owner = intent.getStringExtra(EXTRA_OWNER)?.takeIf { it.isNotBlank() }
-        val repo = intent.getStringExtra(EXTRA_REPO)?.takeIf { it.isNotBlank() }
+        val repoKey = intent?.getStringExtra(EXTRA_REPO_KEY).orEmpty()
+        val owner = intent?.getStringExtra(EXTRA_OWNER)?.takeIf { it.isNotBlank() }
+        val repo = intent?.getStringExtra(EXTRA_REPO)?.takeIf { it.isNotBlank() }
         if (owner.isNullOrBlank() || repo.isNullOrBlank()) {
             // General/notification tap — open the conversation if known, else a fresh chat.
             return ChatRoute(owner = "", repo = "", defaultBranch = "", repoKey = repoKey)
@@ -95,6 +108,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_OPEN_CHAT = "dev.repochat.OPEN_CHAT"
+        const val ACTION_OPEN_SETTINGS = "dev.repochat.OPEN_SETTINGS"
+        const val ACTION_OPEN_REPOS = "dev.repochat.OPEN_REPOS"
         const val EXTRA_OWNER = "owner"
         const val EXTRA_REPO = "repo"
         const val EXTRA_DEFAULT_BRANCH = "default_branch"

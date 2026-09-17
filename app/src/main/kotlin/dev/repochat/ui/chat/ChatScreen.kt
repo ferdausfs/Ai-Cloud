@@ -113,6 +113,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -936,6 +938,7 @@ private fun BottomBar(
     val voice = rememberVoiceInput { spoken ->
         onInputChange(VoiceInputMerger.merge(input, spoken))
     }
+    val haptics = LocalHapticFeedback.current
     LaunchedEffect(voice.errorEvent) {
         if (voice.errorEvent != null) {
             delay(4_000)
@@ -978,7 +981,10 @@ private fun BottomBar(
             if (approvalPending || approving) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
-                        onClick = onReject,
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onReject()
+                        },
                         enabled = !approving,
                         modifier = Modifier
                             .weight(0.4f)
@@ -989,7 +995,10 @@ private fun BottomBar(
                         Text(stringResource(R.string.chat_reject))
                     }
                     Button(
-                        onClick = onApprove,
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onApprove()
+                        },
                         enabled = !approving,
                         modifier = Modifier
                             .weight(0.6f)
@@ -1129,7 +1138,12 @@ private fun BottomBar(
                                 },
                                 shape = CircleShape,
                             )
-                            .bounce { if (canSend) onSend() },
+                            .bounce {
+                                if (canSend) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onSend()
+                                }
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(

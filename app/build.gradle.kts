@@ -31,10 +31,10 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the voice-input release: in-app speech-to-text on the
-        // composer (SpeechRecognizer, runtime permission, live transcript).
-        versionCode = 7
-        versionName = "2.2.0"
+        // Bumped for the premium polish release: AMOLED true-black theme,
+        // haptic feedback on key actions, home-screen app shortcuts.
+        versionCode = 8
+        versionName = "2.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -14,6 +14,18 @@ import androidx.compose.ui.graphics.Color
 /** Whether the app is currently rendered in dark mode (in-app override aware). */
 val LocalDarkTheme = staticCompositionLocalOf { true }
 
+/** True-black AMOLED surfaces for OLED screens (only meaningful in dark mode). */
+private fun amoledFrom(base: ColorScheme): ColorScheme = base.copy(
+    background = Color(0xFF000000),
+    surface = Color(0xFF000000),
+    surfaceContainerLowest = Color(0xFF000000),
+    surfaceContainerLow = Color(0xFF070809),
+    surfaceContainer = Color(0xFF0B0C0E),
+    surfaceContainerHigh = Color(0xFF121316),
+    surfaceContainerHighest = Color(0xFF17181B),
+    surfaceVariant = Color(0xFF101216),
+)
+
 private fun darkColors(): ColorScheme = darkColorScheme(
     primary = GitHubBlue,
     onPrimary = Color(0xFF0D1117),
@@ -87,11 +99,14 @@ private fun lightColors(): ColorScheme = lightColorScheme(
 @Composable
 fun RepoChatTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amoled: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val base = if (darkTheme) darkColors() else lightColors()
+    val scheme = if (darkTheme && amoled) amoledFrom(base) else base
     CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
         MaterialTheme(
-            colorScheme = if (darkTheme) darkColors() else lightColors(),
+            colorScheme = scheme,
             typography = RepoChatTypography,
             shapes = RepoChatShapes,
             content = content,

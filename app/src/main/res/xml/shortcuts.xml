@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_chat"
+        android:shortcutShortLabel="@string/shortcut_new_chat"
+        android:shortcutLongLabel="@string/shortcut_new_chat_long">
+        <intent
+            android:action="dev.repochat.OPEN_CHAT"
+            android:targetClass="dev.repochat.MainActivity"
+            android:targetPackage="dev.repochat" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="repos"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_repos"
+        android:shortcutShortLabel="@string/shortcut_repos"
+        android:shortcutLongLabel="@string/shortcut_repos_long">
+        <intent
+            android:action="dev.repochat.OPEN_REPOS"
+            android:targetClass="dev.repochat.MainActivity"
+            android:targetPackage="dev.repochat" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="settings"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_settings"
+        android:shortcutShortLabel="@string/shortcut_settings"
+        android:shortcutLongLabel="@string/shortcut_settings_long">
+        <intent
+            android:action="dev.repochat.OPEN_SETTINGS"
+            android:targetClass="dev.repochat.MainActivity"
+            android:targetPackage="dev.repochat" />
+    </shortcut>
+</shortcuts>
