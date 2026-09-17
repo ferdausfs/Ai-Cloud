@@ -12,6 +12,7 @@ import dev.repochat.core.data.local.AppDatabase
 import dev.repochat.core.data.local.ChatMessageDao
 import dev.repochat.core.data.local.EncryptedSettingsStore
 import dev.repochat.core.data.local.RepoSessionDao
+import dev.repochat.core.data.local.SelfHealingOpenHelperFactory
 import dev.repochat.core.data.local.SkillDao
 import dev.repochat.core.data.local.UsageDao
 import dev.repochat.core.data.remote.GithubApi
@@ -90,8 +91,18 @@ abstract class DataModule {
         @Singleton
         fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
             androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "repochat.db")
-                .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+                .addMigrations(
+                    AppDatabase.MIGRATION_1_2,
+                    AppDatabase.MIGRATION_2_3,
+                    AppDatabase.MIGRATION_3_4,
+                    AppDatabase.MIGRATION_4_5,
+                )
                 .fallbackToDestructiveMigrationOnDowngrade()
+                // Last-resort: if schema validation still fails for an
+                // unforeseen reason, recreate the DB instead of crash-looping.
+                .openHelperFactory(
+                    SelfHealingOpenHelperFactory(androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory()),
+                )
                 .build()
 
         @Provides

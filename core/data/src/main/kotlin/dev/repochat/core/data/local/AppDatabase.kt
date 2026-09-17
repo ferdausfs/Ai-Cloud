@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkillEntity::class,
         UsageEventEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -89,6 +89,23 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_usage_events_ts ON usage_events(ts)",
+                )
+            }
+        }
+
+        /**
+         * v4→v5: formalize the ts index in the entity schema. The v3→v4
+         * migration created it via SQL while UsageEventEntity didn't declare
+         * it — upgrade installs then failed Room's post-migration validation
+         * (field startup crash, rolled back to v3 on every launch). Bumping
+         * the version re-validates every existing v3/v4 database against the
+         * now-declared index and refreshes the identity hash. Idempotent via
+         * IF NOT EXISTS.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_usage_events_ts ON usage_events(ts)",
                 )

@@ -31,15 +31,18 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // v2.5.2 (versionCode 12): the R8 revert in v2.5.1 did NOT stop the
-        // field startup crash — so the crash is data/device-dependent, not
-        // (only) minification. Hardened the launch path: EncryptedSettingsStore
-        // now survives a corrupted keyset / broken Keystore (wipe+retry, then
-        // plain-prefs degradation) and CrashTrap captures any remaining crash
-        // to a shareable report dialog on the next launch. R8 stays disabled
-        // until the CI smoke test proves it green with minify ON.
-        versionCode = 12
-        versionName = "2.5.2"
+        // v2.5.3 (versionCode 13): ROOT CAUSE of the field startup crash found
+        // via the v2.5.2 CrashTrap report — "Migration didn't properly handle
+        // usage_events": MIGRATION_3_4 created index_usage_events_ts via SQL
+        // but UsageEventEntity never declared it, so every UPGRADE install
+        // failed Room's post-migration validation on launch (fresh installs —
+        // and therefore CI — never saw it). Fix: declare the index on the
+        // entity, bump DB 4→5 with an idempotent MIGRATION_4_5 (users stuck at
+        // v3 re-run 3→4 then 4→5; existing v4s get the index added), and add
+        // SelfHealingOpenHelperFactory so no future schema failure can
+        // crash-loop launches. R8 stays disabled.
+        versionCode = 13
+        versionName = "2.5.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

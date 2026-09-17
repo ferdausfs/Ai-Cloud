@@ -3,6 +3,7 @@ package dev.repochat.core.data.local
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
@@ -13,8 +14,17 @@ import dev.repochat.core.model.UsageTotals
 /**
  * One metered provider call (chat completion, image generation, speech
  * synthesis). Append-only; the dashboard aggregates over time ranges.
+ *
+ * v2.5.3: the ts index is now DECLARED on the entity. The v3→v4 migration
+ * created it via SQL while the entity didn't declare it, so every UPGRADE
+ * install failed Room's post-migration schema validation
+ * ("Migration didn't properly handle: usage_events") and crashed on launch —
+ * fresh installs were unaffected, which is why CI never caught it.
  */
-@Entity(tableName = "usage_events")
+@Entity(
+    tableName = "usage_events",
+    indices = [Index(value = ["ts"])],
+)
 data class UsageEventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     /** Epoch millis of the call. */
