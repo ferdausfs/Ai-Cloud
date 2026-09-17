@@ -9,12 +9,14 @@ import dev.repochat.core.domain.ChatRepository
 import dev.repochat.core.domain.CreatePullRequestUseCase
 import dev.repochat.core.domain.GithubService
 import dev.repochat.core.domain.SettingsRepository
+import dev.repochat.core.domain.SkillRepository
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.ChatAttachment
 import dev.repochat.core.model.ChatMessage
 import dev.repochat.core.model.ChatMode
 import dev.repochat.core.model.ModelCapability
 import dev.repochat.core.model.ModelCapabilities
+import dev.repochat.core.model.PromptBuilder
 import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.PendingChange
 import dev.repochat.core.model.PullRequestInfo
@@ -128,6 +130,7 @@ class ChatViewModel @Inject constructor(
     private val turnCoordinator: AiTurnCoordinator,
     private val settingsRepository: SettingsRepository,
     private val githubService: GithubService,
+    private val skillRepository: SkillRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -245,6 +248,26 @@ class ChatViewModel @Inject constructor(
             }
 
             if (!session.isGeneral) refreshCiStatus()
+
+            // Proactive agent greeting for brand-new conversations: lists what
+            // the agent can do RIGHT NOW (skills + model capabilities). Only
+            // when the conversation has no messages yet — never spammed.
+            runCatching {
+                val existing = chatRepository.recentMessages(session.repoKey, session.sessionId, 1)
+                if (existing.isEmpty()) {
+                    val skills = skillRepository.enabledSkills()
+                    val snap = settingsRepository.current()
+                    val active = snap.activeLlmOrFirst()
+                    val caps = ModelCapabilities.of(
+                        active?.modelName?.trim().orEmpty().ifBlank { snap.modelName.trim() },
+                    )
+                    chatRepository.appendAiText(
+                        session.repoKey,
+                        session.sessionId,
+                        PromptBuilder.greetingMessage(skills, caps),
+                    )
+                }
+            }
 
             chatRepository.session(boundKey)
                 .filterNotNull()

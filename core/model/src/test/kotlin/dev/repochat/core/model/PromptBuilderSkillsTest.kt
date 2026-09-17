@@ -38,7 +38,7 @@ class PromptBuilderSkillsTest {
         // The load-on-demand instruction is not needed when everything is inlined
         assertFalse(out.contains("Call read_skill to load"))
         // base system prompt preserved at the start
-        assertTrue(out.startsWith("You are RepoChat"))
+        assertTrue(out.startsWith("You are Ai Cloud"))
     }
 
     @Test
@@ -77,5 +77,27 @@ class PromptBuilderSkillsTest {
         val missing = PromptBuilder.skillNotFoundMessage("nope", listOf("a", "b"))
         assertTrue(missing.contains("SKILL NOT FOUND"))
         assertTrue(missing.contains("a, b"))
+    }
+
+    @Test
+    fun `greeting lists skills and media capabilities`() {
+        val out = PromptBuilder.greetingMessage(
+            listOf(skill("pdf", body = "x", description = "Handles PDFs.")),
+            setOf(ModelCapability.IMAGE_GEN, ModelCapability.AUDIO_GEN),
+        )
+        assertTrue(out.contains("Ai Cloud agent"))
+        assertTrue(out.contains("Installed skills:"))
+        assertTrue(out.contains("pdf — Handles PDFs."))
+        assertTrue(out.contains("Generate images"))
+        assertTrue(out.contains("Read my replies aloud"))
+        assertTrue(out.contains("What should we do first?"))
+    }
+
+    @Test
+    fun `greeting without skills or media stays short`() {
+        val out = PromptBuilder.greetingMessage(emptyList(), emptySet())
+        assertFalse(out.contains("Installed skills:"))
+        assertFalse(out.contains("Generate images"))
+        assertTrue(out.contains("attach one from the top menu"))
     }
 }
