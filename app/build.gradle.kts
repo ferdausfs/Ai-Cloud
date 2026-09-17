@@ -31,11 +31,10 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the onboarding release: skippable first-run wizard with
-        // provider presets, encrypted key entry and a live (token-free)
-        // connection test.
-        versionCode = 9
-        versionName = "2.4.0"
+        // Bumped for the R8 release: minified + resource-shrunk APK with full
+        // keep rules (Retrofit, kotlinx.serialization, stack-trace lines).
+        versionCode = 10
+        versionName = "2.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -55,7 +54,11 @@ android {
     buildTypes {
         release {
             isDebuggable = false
-            isMinifyEnabled = false
+            // R8 minify + resource shrinking — smaller APK, dead code removed.
+            // Keep rules in app/proguard-rules.pro cover Retrofit/kotlinx
+            // serialization reflection surfaces.
+            isMinifyEnabled = true
+            isShrinkResources = true
             if (hasReleaseSigning) {
                 // v2 PKCS12 identity — never the debug keystore, never the
                 // retired pre-v2 key.
