@@ -10,14 +10,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RepoSessionEntity::class,
         ChatMessageEntity::class,
         ActiveRepoEntity::class,
+        SkillEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun repoSessionDao(): RepoSessionDao
     abstract fun chatMessageDao(): ChatMessageDao
     abstract fun activeRepoDao(): ActiveRepoDao
+    abstract fun skillDao(): SkillDao
 
     companion object {
         /**
@@ -40,6 +42,28 @@ abstract class AppDatabase : RoomDatabase() {
                       (SELECT MAX(created_at) FROM chat_messages
                        WHERE chat_messages.repo_key = repo_sessions.repoKey),
                       0
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /** Additive: skills table (installed agent skills). No data touched. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS skills (
+                      name TEXT NOT NULL PRIMARY KEY,
+                      description TEXT NOT NULL,
+                      instructions TEXT NOT NULL,
+                      sourceRepo TEXT NOT NULL,
+                      sourcePath TEXT NOT NULL,
+                      license TEXT,
+                      allowedTools TEXT,
+                      enabled INTEGER NOT NULL DEFAULT 1,
+                      installedAt INTEGER NOT NULL DEFAULT 0,
+                      updatedAt INTEGER NOT NULL DEFAULT 0
                     )
                     """.trimIndent(),
                 )

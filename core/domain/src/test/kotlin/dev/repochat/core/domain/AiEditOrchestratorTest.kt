@@ -32,7 +32,7 @@ class AiEditOrchestratorTest {
         val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"hello!"}""")))
         val github = FakeGithubService()
         val chat = FakeChatRepository()
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
 
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
 
@@ -40,6 +40,97 @@ class AiEditOrchestratorTest {
         assertEquals("ai-chat/testsess1", github.createdBranch)
         assertEquals(1, chat.stored.count { it.kind == dev.repochat.core.model.MessageKind.TEXT && it.role == dev.repochat.core.model.ChatRole.AI })
         assertTrue(ollama.lastMessages.first().content.contains("STRICT JSON ONLY"))
+    }
+
+    @Test
+    fun `read_skill loads installed skill body into context`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"read_skill","name":"pdf"}""",
+                    """{"action":"reply","message":"used the skill"}""",
+                )
+            )
+        )
+        val skills = FakeSkillRepository(
+            initial = listOf(
+                dev.repochat.core.model.InstalledSkill(
+                    name = "pdf",
+                    description = "PDF handling",
+                    instructions = "Always use pdftotext before editing PDFs.",
+                    sourceRepo = "acme/skills",
+                    sourcePath = "pdf/SKILL.md",
+                ),
+            ),
+        )
+        val orchestrator2 = AiEditOrchestrator(
+            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(), skills,
+        )
+
+        val events = orchestrator2.runTurn(request(), MutableSharedFlow()).toList()
+
+        assertTrue(events.any { it == TurnEvent.Reply("used the skill") })
+        val skillMessage = ollama.lastMessages.last { it.role == dev.repochat.core.model.OllamaRole.USER }
+        assertTrue(skillMessage.content.contains("SKILL LOADED - pdf"))
+        assertTrue(skillMessage.content.contains("Always use pdftotext before editing PDFs."))
+    }
+
+    @Test
+    fun `installed skills appear in the agent system prompt`() = runTest {
+        val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"ok"}""")))
+        val skills = FakeSkillRepository(
+            initial = listOf(
+                dev.repochat.core.model.InstalledSkill(
+                    name = "code-review",
+                    description = "Reviews code",
+                    instructions = "Check for regressions.",
+                    sourceRepo = "acme/skills",
+                    sourcePath = "SKILL.md",
+                ),
+            ),
+        )
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(), skills,
+        )
+
+        orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        val system = ollama.lastMessages.first()
+        assertTrue(system.content.contains("AVAILABLE SKILLS"))
+        assertTrue(system.content.contains("name: code-review"))
+        assertTrue(system.content.contains("Check for regressions."))
+    }
+
+    @Test
+    fun `read_skill for unknown skill reports availability`() = runTest {
+        val ollama = FakeLlmService(
+            ArrayDeque(
+                listOf(
+                    """{"action":"read_skill","name":"ghost"}""",
+                    """{"action":"reply","message":"ok"}""",
+                )
+            )
+        )
+        val skills = FakeSkillRepository(
+            initial = listOf(
+                dev.repochat.core.model.InstalledSkill(
+                    name = "real",
+                    description = "d",
+                    instructions = "b",
+                    sourceRepo = "acme/skills",
+                    sourcePath = "SKILL.md",
+                ),
+            ),
+        )
+        val orchestrator = AiEditOrchestrator(
+            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(), skills,
+        )
+
+        orchestrator.runTurn(request(), MutableSharedFlow()).toList()
+
+        val skillMessage = ollama.lastMessages.last { it.role == dev.repochat.core.model.OllamaRole.USER }
+        assertTrue(skillMessage.content.contains("SKILL NOT FOUND"))
+        assertTrue(skillMessage.content.contains("real"))
     }
 
     @Test
@@ -56,7 +147,7 @@ class AiEditOrchestratorTest {
             files["src/Main.kt"] = GitFile("src/Main.kt", "fun main()", "sha-1", 10, isBinary = false)
         }
         val chat = FakeChatRepository()
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         // replay=1 so the approval emitted while handling ProposeWrite is
         // retained until the orchestrator suspends on approval.first()
         // (with replay=0 the emission would be dropped: no subscriber yet).
@@ -87,7 +178,7 @@ class AiEditOrchestratorTest {
         )
         val github = FakeGithubService()
         val chat = FakeChatRepository()
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val approval = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
 
         val collected = mutableListOf<TurnEvent>()
@@ -108,7 +199,7 @@ class AiEditOrchestratorTest {
     fun `missing model name surfaces a configuration error`() = runTest {
         val orchestrator = AiEditOrchestrator(
             FakeLlmService(), FakeGithubService(), FakeChatRepository(),
-            FakeSettingsRepository(AppSettings(modelName = "  ")),
+            FakeSettingsRepository(AppSettings(modelName = "  ")), FakeSkillRepository(),
         )
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
         val error = events.filterIsInstance<TurnEvent.Error>().single().error
@@ -119,7 +210,7 @@ class AiEditOrchestratorTest {
     fun `rate limit errors are surfaced as typed events`() = runTest {
         val ollama = FakeLlmService(failure = AppError.RateLimited(AppError.Provider.OLLAMA, "rate limited"))
         val orchestrator = AiEditOrchestrator(
-            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository()
+            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(), FakeSkillRepository()
         )
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
         val error = events.filterIsInstance<TurnEvent.Error>().single().error
@@ -131,7 +222,7 @@ class AiEditOrchestratorTest {
     fun `text attachment is prepended to the user turn`() = runTest {
         val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"got it"}""")))
         val orchestrator = AiEditOrchestrator(
-            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(),
+            ollama, FakeGithubService(), FakeChatRepository(), FakeSettingsRepository(), FakeSkillRepository(),
         )
         val req = request().copy(
             userText = "please review",
@@ -154,7 +245,7 @@ class AiEditOrchestratorTest {
         val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"no vision"}""")))
         val orchestrator = AiEditOrchestrator(
             ollama, FakeGithubService(), FakeChatRepository(),
-            FakeSettingsRepository(AppSettings(modelName = "gpt-oss:120b-cloud")),
+            FakeSettingsRepository(AppSettings(modelName = "gpt-oss:120b-cloud")), FakeSkillRepository(),
         )
         val req = request().copy(
             userText = "what is this?",
@@ -176,7 +267,7 @@ class AiEditOrchestratorTest {
         val ollama = FakeLlmService(ArrayDeque(listOf("""{"action":"reply","message":"i see it"}""")))
         val orchestrator = AiEditOrchestrator(
             ollama, FakeGithubService(), FakeChatRepository(),
-            FakeSettingsRepository(AppSettings(modelName = "llava:13b")),
+            FakeSettingsRepository(AppSettings(modelName = "llava:13b")), FakeSkillRepository(),
         )
         val req = request().copy(
             userText = "describe",
@@ -203,7 +294,7 @@ class AiEditOrchestratorTest {
             ),
         )
         val github = FakeGithubService()
-        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository(), FakeSkillRepository())
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
 
         assertEquals(Triple("ai-chat/testsess1", "main", "AI fixes"), github.lastPrArgs)
@@ -233,7 +324,7 @@ class AiEditOrchestratorTest {
                 ),
             )
         }
-        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository(), FakeSkillRepository())
         val events = orchestrator.runTurn(request(), MutableSharedFlow()).toList()
 
         assertEquals("ai-chat/testsess1", github.lastCiBranch)
@@ -257,7 +348,7 @@ class AiEditOrchestratorTest {
             ),
         )
         val github = FakeGithubService()
-        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, FakeChatRepository(), FakeSettingsRepository(), FakeSkillRepository())
         orchestrator.runTurn(request(), MutableSharedFlow()).toList()
 
         assertEquals("ai-chat/testsess1", github.lastCiBranch)
@@ -269,7 +360,7 @@ class AiEditOrchestratorTest {
         val github = FakeGithubService()
         val chat = FakeChatRepository()
         val session = chat.createGeneralSession()
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
 
         val req = TurnRequest(
             repoKey = session.repoKey,
@@ -300,7 +391,7 @@ class AiEditOrchestratorTest {
         val chat = FakeChatRepository()
         val session = chat.createGeneralSession()
         val orchestrator = AiEditOrchestrator(
-            ollama, FakeGithubService(), chat, FakeSettingsRepository(),
+            ollama, FakeGithubService(), chat, FakeSettingsRepository(), FakeSkillRepository(),
         )
         val req = TurnRequest(
             repoKey = session.repoKey,

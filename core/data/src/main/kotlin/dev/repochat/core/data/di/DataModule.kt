@@ -12,6 +12,7 @@ import dev.repochat.core.data.local.AppDatabase
 import dev.repochat.core.data.local.ChatMessageDao
 import dev.repochat.core.data.local.EncryptedSettingsStore
 import dev.repochat.core.data.local.RepoSessionDao
+import dev.repochat.core.data.local.SkillDao
 import dev.repochat.core.data.remote.GithubApi
 import dev.repochat.core.data.remote.GithubAuthInterceptor
 import dev.repochat.core.data.remote.OllamaApi
@@ -24,6 +25,7 @@ import dev.repochat.core.data.repository.ChatRepositoryImpl
 import dev.repochat.core.data.repository.GithubRepositoryImpl
 import dev.repochat.core.data.repository.OllamaRepositoryImpl
 import dev.repochat.core.data.repository.SettingsRepositoryImpl
+import dev.repochat.core.data.repository.SkillRepositoryImpl
 import dev.repochat.core.domain.ActiveRepoRepository
 import dev.repochat.core.domain.AiEditOrchestrator
 import dev.repochat.core.domain.AiTurnRunner
@@ -31,6 +33,7 @@ import dev.repochat.core.domain.ChatRepository
 import dev.repochat.core.domain.GithubService
 import dev.repochat.core.domain.OllamaService
 import dev.repochat.core.domain.SettingsRepository
+import dev.repochat.core.domain.SkillRepository
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -68,6 +71,10 @@ abstract class DataModule {
 
     @Binds
     @Singleton
+    abstract fun bindSkillRepository(impl: SkillRepositoryImpl): SkillRepository
+
+    @Binds
+    @Singleton
     abstract fun bindAiTurnRunner(impl: AiEditOrchestrator): AiTurnRunner
 
     companion object {
@@ -76,7 +83,7 @@ abstract class DataModule {
         @Singleton
         fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
             androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "repochat.db")
-                .addMigrations(AppDatabase.MIGRATION_1_2)
+                .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
 
@@ -96,6 +103,10 @@ abstract class DataModule {
         @Provides
         @Singleton
         fun provideActiveRepoDao(db: AppDatabase): ActiveRepoDao = db.activeRepoDao()
+
+        @Provides
+        @Singleton
+        fun provideSkillDao(db: AppDatabase): SkillDao = db.skillDao()
 
         @Provides
         @Singleton

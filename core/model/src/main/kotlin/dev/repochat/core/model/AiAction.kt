@@ -11,6 +11,8 @@ sealed interface AiAction {
     data class WriteFile(val path: String, val content: String, val commitMessage: String) : AiAction
     data class CreatePullRequest(val title: String, val body: String) : AiAction
     data class CheckCiStatus(val branchOverride: String? = null) : AiAction
+    /** Loads the full instructions of an installed skill by name. */
+    data class ReadSkill(val name: String) : AiAction
 }
 
 enum class OllamaRole(val wireName: String) {
@@ -44,6 +46,8 @@ object AiActionParser {
         val title: String = "",
         val body: String = "",
         val branch: String = "",
+        val name: String = "",
+        val skill: String = "",
     )
 
     private val json = kotlinx.serialization.json.Json {
@@ -100,12 +104,30 @@ object AiActionParser {
                     .takeIf { it.isNotBlank() }
                 AiAction.CheckCiStatus(branchOverride = branch)
             }
+            "read_skill", "use_skill", "load_skill" -> {
+                val skillName = normalizeName(dto.name.trim().ifEmpty { dto.skill.trim() })
+                if (skillName == null) AiAction.Reply(fallbackText(raw))
+                else AiAction.ReadSkill(skillName)
+            }
             else -> {
                 val message = dto.message.trim()
                 if (message.isNotEmpty()) AiAction.Reply(message)
                 else AiAction.Reply(fallbackText(raw))
             }
         }
+    }
+
+    /**
+     * Normalizes a model-provided skill name the same way installed skill
+     * names are normalized (lowercase kebab-case), so lookups match even when
+     * the model echoes the display form.
+     */
+    fun normalizeName(raw: String): String? {
+        val cleaned = raw.trim().lowercase()
+            .replace(Regex("[^a-z0-9\\-]+"), "-")
+            .trim('-')
+            .replace(Regex("-{2,}"), "-")
+        return cleaned.takeIf { it.isNotEmpty() }?.take(64)
     }
 
     /** Normalizes a model-provided path to a safe, repo-relative path (or null). */

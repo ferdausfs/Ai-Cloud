@@ -20,6 +20,13 @@ interface GithubService {
     suspend fun currentUserLogin(): String
 
     /**
+     * Default branch of ANY repo (not only the user's own) — used when
+     * installing skills from arbitrary GitHub sources. Throws AppError on
+     * failure (404 → NotFound).
+     */
+    suspend fun repoDefaultBranch(owner: String, repo: String): String
+
+    /**
      * Returns the working branch for [sessionId], creating it from the
      * [defaultBranch] HEAD if it does not exist yet. Never returns main/master.
      */

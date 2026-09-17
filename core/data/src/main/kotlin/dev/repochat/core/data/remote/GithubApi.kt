@@ -24,6 +24,13 @@ interface GithubApi {
         @retrofit2.http.Query("direction") direction: String = "desc",
     ): List<GithubRepoDto>
 
+    /** Metadata for any single repo (used for skill installs from arbitrary sources). */
+    @retrofit2.http.GET("repos/{owner}/{repo}")
+    suspend fun repo(
+        @retrofit2.http.Path("owner") owner: String,
+        @retrofit2.http.Path("repo") repo: String,
+    ): GithubRepoDto
+
     @retrofit2.http.GET("repos/{owner}/{repo}/git/refs/heads/{branch}")
     suspend fun branch(
         @retrofit2.http.Path("owner") owner: String,

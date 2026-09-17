@@ -12,6 +12,15 @@
     <string name="settings_github_section">GitHub</string>
     <string name="settings_github_pat">Personal access token</string>
     <string name="settings_github_pat_help">Needs the repo scope so the AI can read files and open pull requests.</string>
+    <string name="settings_skills_section">Skills</string>
+    <string name="settings_skills_body">Teach the agent new workflows. Paste a GitHub repo that contains SKILL.md files (Claude-format agent skills) — every task first checks whether an installed skill covers it.</string>
+    <string name="settings_skills_install">Install from GitHub</string>
+    <string name="settings_skills_url_hint">https://github.com/owner/repo</string>
+    <string name="settings_skills_empty">No skills installed yet. Paste a skills repo link above — e.g. github.com/anthropics/skills — and the agent will follow them when a task matches.</string>
+    <string name="settings_skills_installing">Installing…</string>
+    <string name="settings_skills_delete">Remove skill</string>
+    <string name="settings_skills_enable">Enable skill</string>
+    <string name="settings_skills_source">Source</string>
     <string name="settings_save">Save settings</string>
     <string name="settings_saved">Saved — stored encrypted with Android Keystore</string>
     <string name="settings_continue">Browse repositories</string>

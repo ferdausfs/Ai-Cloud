@@ -3,6 +3,7 @@ package dev.repochat.ui.settings
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -59,16 +61,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.repochat.R
 import dev.repochat.core.model.ConnectionType
+import dev.repochat.core.model.InstalledSkill
 import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
 import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
 import dev.repochat.core.model.ModelPriceClass
@@ -248,6 +253,69 @@ fun SettingsScreen(
                         .height(48.dp),
                 ) {
                     Text(stringResource(R.string.settings_save))
+                }
+
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    text = stringResource(R.string.settings_skills_section),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.settings_skills_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = state.skillInstallUrl,
+                        onValueChange = viewModel::onSkillUrlChange,
+                        placeholder = { Text(stringResource(R.string.settings_skills_url_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    if (state.skillInstall.status == SkillInstallStatus.Installing) {
+                        CircularProgressIndicator(Modifier.size(24.dp))
+                    } else {
+                        Button(onClick = viewModel::installSkills) {
+                            Text(stringResource(R.string.settings_skills_install))
+                        }
+                    }
+                }
+
+                val skillStatus = state.skillInstall
+                if (skillStatus.detail.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = skillStatus.detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (skillStatus.status == SkillInstallStatus.Failed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                if (state.skills.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.settings_skills_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    state.skills.forEach { skill ->
+                        SkillRow(
+                            skill = skill,
+                            onToggle = viewModel::toggleSkill,
+                            onDelete = viewModel::deleteSkill,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                 }
 
                 Spacer(Modifier.height(24.dp))
@@ -850,6 +918,54 @@ private fun TestStatusLabel(state: TestState) {
                 state.detail,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkillRow(
+    skill: InstalledSkill,
+    onToggle: (String, Boolean) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(skill.name, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = skill.sourceRepo + (skill.license?.let { " · $it" } ?: ""),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = skill.enabled,
+                onCheckedChange = { onToggle(skill.name, it) },
+                modifier = Modifier.padding(start = 8.dp),
+            )
+            IconButton(onClick = { onDelete(skill.name) }) {
+                Icon(
+                    Icons.Rounded.Delete,
+                    contentDescription = stringResource(R.string.settings_skills_delete),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (skill.description.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = skill.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

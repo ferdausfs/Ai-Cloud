@@ -48,6 +48,9 @@ class GithubRepositoryImpl @Inject constructor(
     override suspend fun currentUserLogin(): String =
         mapHttpErrors(AppError.Provider.GITHUB) { api.currentUser().login }
 
+    override suspend fun repoDefaultBranch(owner: String, repo: String): String =
+        mapHttpErrors(AppError.Provider.GITHUB) { api.repo(owner, repo).defaultBranch }
+
     override suspend fun ensureWorkingBranch(
         owner: String,
         repo: String,

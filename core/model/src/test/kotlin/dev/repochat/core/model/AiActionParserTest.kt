@@ -84,4 +84,22 @@ class AiActionParserTest {
         val without = AiActionParser.parse("""{"action":"check_ci_status"}""")
         assertEquals(AiAction.CheckCiStatus(null), without)
     }
+
+    @Test
+    fun `parses read_skill with name variants`() {
+        assertEquals(
+            AiAction.ReadSkill("pdf-processing"),
+            AiActionParser.parse("""{"action":"read_skill","name":"pdf-processing"}"""),
+        )
+        assertEquals(
+            AiAction.ReadSkill("pdf-processing"),
+            AiActionParser.parse("""{"action":"use_skill","skill":"PDF Processing!"}"""),
+        )
+    }
+
+    @Test
+    fun `read_skill without name falls back to reply`() {
+        val action = AiActionParser.parse("""{"action":"read_skill"}""")
+        assertTrue(action is AiAction.Reply)
+    }
 }

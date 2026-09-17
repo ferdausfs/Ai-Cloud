@@ -42,6 +42,7 @@ class AiEditOrchestrator @Inject constructor(
     private val github: GithubService,
     private val chat: ChatRepository,
     private val settings: SettingsRepository,
+    private val skills: SkillRepository,
 ) : AiTurnRunner {
 
     override fun runTurn(request: TurnRequest, approval: Flow<Boolean>): Flow<TurnEvent> = channelFlow {
@@ -67,6 +68,14 @@ class AiEditOrchestrator @Inject constructor(
             defaultBranch = request.defaultBranch,
         )
         chat.updateWorkingBranch(request.repoKey, branch)
+
+        // Installed skills ride along on every agent turn: small ones are
+        // inlined into the system prompt, big ones load via read_skill.
+        val enabledSkills = try {
+            skills.enabledSkills()
+        } catch (_: Exception) {
+            emptyList() // skills must never break a normal agent turn
+        }
 
         send(TurnEvent.Working("Fetching repository tree"))
         val tree = github.fileTree(request.owner, request.repo, branch)
@@ -112,7 +121,12 @@ class AiEditOrchestrator @Inject constructor(
         }
 
         var messages = buildList {
-            add(OllamaMessage(OllamaRole.SYSTEM, PromptBuilder.system()))
+            add(
+                OllamaMessage(
+                    OllamaRole.SYSTEM,
+                    PromptBuilder.withAgentSkills(PromptBuilder.system(), enabledSkills),
+                )
+            )
             addAll(history)
             add(
                 OllamaMessage(
@@ -256,6 +270,24 @@ class AiEditOrchestrator @Inject constructor(
                     }
                     messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
                 }
+
+                is AiAction.ReadSkill -> {
+                    send(TurnEvent.Working("Loading skill ${action.name}"))
+                    val skill = try {
+                        skills.skill(action.name)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val context = if (skill != null && skill.enabled) {
+                        PromptBuilder.skillContentMessage(skill)
+                    } else {
+                        PromptBuilder.skillNotFoundMessage(
+                            action.name,
+                            enabledSkills.map { it.name },
+                        )
+                    }
+                    messages = PromptBuilder.cap(messages + OllamaMessage(OllamaRole.USER, context))
+                }
             }
         }
 
@@ -284,6 +316,13 @@ class AiEditOrchestrator @Inject constructor(
         model: String,
     ) {
         send(TurnEvent.Working("Thinking"))
+        // Skills also apply to plain conversations — inline only, since there
+        // is no tool loop here. A broken skill store must never block chat.
+        val enabledSkills = try {
+            skills.enabledSkills()
+        } catch (_: Exception) {
+            emptyList()
+        }
         val history = chat.recentMessages(request.repoKey, request.sessionId, limit = 16)
             .filter { it.kind == MessageKind.TEXT && !it.text.isNullOrBlank() }
             .dropLast(1)
@@ -323,7 +362,12 @@ class AiEditOrchestrator @Inject constructor(
 
         val messages = PromptBuilder.cap(
             buildList {
-                add(OllamaMessage(OllamaRole.SYSTEM, PromptBuilder.generalSystem()))
+                add(
+                    OllamaMessage(
+                        OllamaRole.SYSTEM,
+                        PromptBuilder.withGeneralSkills(PromptBuilder.generalSystem(), enabledSkills),
+                    )
+                )
                 addAll(history)
                 add(
                     OllamaMessage(

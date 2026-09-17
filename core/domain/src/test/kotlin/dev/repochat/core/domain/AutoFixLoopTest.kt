@@ -95,7 +95,7 @@ class AutoFixLoopTest {
         }
         val chat = FakeChatRepository()
         chat.ensureSession("acme", "demo", "main")
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request(), maxAttempts = 3).toList()
@@ -139,7 +139,7 @@ class AutoFixLoopTest {
         }
         val chat = FakeChatRepository()
         chat.ensureSession("acme", "demo", "main")
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request("fix Main.kt"), maxAttempts = 3).toList()
@@ -180,7 +180,7 @@ class AutoFixLoopTest {
         }
         val chat = FakeChatRepository()
         chat.ensureSession("acme", "demo", "main")
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request("impossible", max = 2), maxAttempts = 2).toList()
@@ -210,7 +210,7 @@ class AutoFixLoopTest {
         }
         val chat = FakeChatRepository()
         chat.ensureSession("acme", "demo", "main")
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request("fix", max = 5), maxAttempts = 5).toList()
@@ -247,7 +247,7 @@ class AutoFixLoopTest {
         }
         val chat = FakeChatRepository()
         chat.ensureSession("acme", "demo", "main")
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request("fix it", max = 2), maxAttempts = 2).toList()
@@ -287,7 +287,7 @@ class AutoFixLoopTest {
         }
         val chat = FakeChatRepository()
         chat.ensureSession("acme", "demo", "main")
-        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository())
+        val orchestrator = AiEditOrchestrator(ollama, github, chat, FakeSettingsRepository(), FakeSkillRepository())
         val loop = testLoop(orchestrator, github, chat)
 
         val events = loop.run(request(), maxAttempts = 1).toList()

@@ -116,6 +116,8 @@ class FakeGithubService : GithubService {
 
     override suspend fun currentUserLogin(): String = "test-user"
 
+    override suspend fun repoDefaultBranch(owner: String, repo: String): String = "main"
+
     override suspend fun ensureWorkingBranch(owner: String, repo: String, sessionId: String, defaultBranch: String): String {
         val branch = "ai-chat/$sessionId"
         createdBranch = branch
@@ -358,5 +360,41 @@ class FakeSettingsRepository(
     override suspend fun current(): AppSettings = state.value
     override suspend fun save(settings: AppSettings) {
         state.value = settings
+    }
+}
+
+/** In-memory skill store double; preloaded skills are passed via [initial]. */
+class FakeSkillRepository(
+    initial: List<dev.repochat.core.model.InstalledSkill> = emptyList(),
+) : SkillRepository {
+    val store = LinkedHashMap<String, dev.repochat.core.model.InstalledSkill>()
+    var failWith: AppError? = null
+
+    init {
+        initial.forEach { store[it.name] = it }
+    }
+
+    override fun installed(): Flow<List<dev.repochat.core.model.InstalledSkill>> =
+        MutableStateFlow(store.values.toList())
+
+    override suspend fun enabledSkills(): List<dev.repochat.core.model.InstalledSkill> {
+        failWith?.let { throw it }
+        return store.values.filter { it.enabled }
+    }
+
+    override suspend fun skill(name: String): dev.repochat.core.model.InstalledSkill? {
+        failWith?.let { throw it }
+        return store[name]
+    }
+
+    override suspend fun installFromGithub(source: String): dev.repochat.core.model.SkillInstallReport =
+        throw AppError.Network("not available in fakes")
+
+    override suspend fun setEnabled(name: String, enabled: Boolean) {
+        store[name]?.let { store[name] = it.copy(enabled = enabled) }
+    }
+
+    override suspend fun delete(name: String) {
+        store.remove(name)
     }
 }

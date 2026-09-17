@@ -7,10 +7,12 @@ import dev.repochat.core.domain.ActiveRepoRepository
 import dev.repochat.core.domain.LlmService
 import dev.repochat.core.domain.SaveSettingsUseCase
 import dev.repochat.core.domain.SettingsRepository
+import dev.repochat.core.domain.SkillRepository
 import dev.repochat.core.domain.TestGithubUseCase
 import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ConnectionType
+import dev.repochat.core.model.InstalledSkill
 import dev.repochat.core.model.KNOWN_OLLAMA_CLOUD_MODELS
 import dev.repochat.core.model.KNOWN_EXPERIENTIAL_MODELS
 import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
@@ -44,6 +46,13 @@ data class ModelListState(
     val fromCache: Boolean = false,
 )
 
+enum class SkillInstallStatus { Idle, Installing, Done, Failed }
+
+data class SkillInstallState(
+    val status: SkillInstallStatus = SkillInstallStatus.Idle,
+    val detail: String = "",
+)
+
 data class SettingsUiState(
     val githubPat: String = "",
     val connections: List<ServiceConnection> = emptyList(),
@@ -59,6 +68,9 @@ data class SettingsUiState(
     val activeRepo: ActiveRepo? = null,
     val savedFlash: Boolean = false,
     val editingConnectionId: String? = null,
+    val skills: List<InstalledSkill> = emptyList(),
+    val skillInstallUrl: String = "",
+    val skillInstall: SkillInstallState = SkillInstallState(),
 )
 
 @HiltViewModel
@@ -69,6 +81,7 @@ class SettingsViewModel @Inject constructor(
     private val llm: LlmService,
     private val testGithub: TestGithubUseCase,
     private val catalogCache: ModelCatalogCache,
+    private val skillRepository: SkillRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -97,6 +110,64 @@ class SettingsViewModel @Inject constructor(
                 _uiState.update { it.copy(activeRepo = repo) }
             }
         }
+        viewModelScope.launch {
+            skillRepository.installed().collect { skills ->
+                _uiState.update { it.copy(skills = skills) }
+            }
+        }
+    }
+
+    /* ------------------------------ Skills ------------------------------ */
+
+    fun onSkillUrlChange(value: String) =
+        _uiState.update { it.copy(skillInstallUrl = value) }
+
+    fun installSkills() {
+        val url = _uiState.value.skillInstallUrl
+        if (url.isBlank()) return
+        if (_uiState.value.skillInstall.status == SkillInstallStatus.Installing) return
+        _uiState.update { it.copy(skillInstall = SkillInstallState(SkillInstallStatus.Installing)) }
+        viewModelScope.launch {
+            try {
+                val report = skillRepository.installFromGithub(url)
+                val detail = when {
+                    report.installedCount > 0 && report.unchangedCount > 0 ->
+                        "Installed ${report.installedCount} skill${if (report.installedCount == 1) "" else "s"} " +
+                            "(${report.unchangedCount} already up to date) from ${report.sourceLabel}"
+                    report.installedCount > 0 ->
+                        "Installed ${report.installedCount} skill${if (report.installedCount == 1) "" else "s"} from ${report.sourceLabel}"
+                    else ->
+                        "Already up to date (${report.unchangedCount} unchanged) from ${report.sourceLabel}"
+                }
+                _uiState.update {
+                    it.copy(
+                        skillInstall = SkillInstallState(SkillInstallStatus.Done, detail),
+                        skillInstallUrl = "",
+                    )
+                }
+            } catch (e: dev.repochat.core.model.AppError) {
+                _uiState.update {
+                    it.copy(skillInstall = SkillInstallState(SkillInstallStatus.Failed, e.userMessage))
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        skillInstall = SkillInstallState(
+                            SkillInstallStatus.Failed,
+                            e.message?.takeIf { m -> m.isNotBlank() } ?: "Install failed — check the link and network",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleSkill(name: String, enabled: Boolean) {
+        viewModelScope.launch { skillRepository.setEnabled(name, enabled) }
+    }
+
+    fun deleteSkill(name: String) {
+        viewModelScope.launch { skillRepository.delete(name) }
     }
 
     fun onGithubPatChange(value: String) = _uiState.update { it.copy(githubPat = value) }
