@@ -9,6 +9,7 @@ import dev.repochat.core.domain.SaveSettingsUseCase
 import dev.repochat.core.domain.SettingsRepository
 import dev.repochat.core.domain.SkillRepository
 import dev.repochat.core.domain.TestGithubUseCase
+import dev.repochat.core.domain.UsageRepository
 import dev.repochat.core.model.ActiveRepo
 import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ConnectionType
@@ -18,6 +19,10 @@ import dev.repochat.core.model.KNOWN_EXPERIENTIAL_MODELS
 import dev.repochat.core.model.KNOWN_OPENAI_PROVIDERS
 import dev.repochat.core.model.ModelPricing
 import dev.repochat.core.model.ServiceConnection
+import dev.repochat.core.model.UsageClock
+import dev.repochat.core.model.UsageCsv
+import dev.repochat.core.model.UsageProviderTotals
+import dev.repochat.core.model.UsageTotals
 import dev.repochat.core.model.matchOpenAiPreset
 import java.util.UUID
 import javax.inject.Inject
@@ -71,6 +76,12 @@ data class SettingsUiState(
     val skills: List<InstalledSkill> = emptyList(),
     val skillInstallUrl: String = "",
     val skillInstall: SkillInstallState = SkillInstallState(),
+    val usageToday: UsageTotals = UsageTotals(),
+    val usage7d: UsageTotals = UsageTotals(),
+    val usage30d: UsageTotals = UsageTotals(),
+    val usageProviders: List<UsageProviderTotals> = emptyList(),
+    /** Draft text of the daily token budget field (0 / blank = no limit). */
+    val dailyBudgetText: String = "",
 )
 
 @HiltViewModel
@@ -82,6 +93,7 @@ class SettingsViewModel @Inject constructor(
     private val testGithub: TestGithubUseCase,
     private val catalogCache: ModelCatalogCache,
     private val skillRepository: SkillRepository,
+    private val usageRepository: UsageRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -115,7 +127,72 @@ class SettingsViewModel @Inject constructor(
                 _uiState.update { it.copy(skills = skills) }
             }
         }
+        viewModelScope.launch {
+            settingsRepository.settings.collect { settings ->
+                _uiState.update {
+                    if (it.dailyBudgetText.isEmpty()) {
+                        it.copy(dailyBudgetText = settings.dailyTokenBudget.takeIf { b -> b > 0 }?.toString().orEmpty())
+                    } else {
+                        it
+                    }
+                }
+            }
+        }
+        refreshUsage()
     }
+
+    /* --------------------------- Usage & budget --------------------------- */
+
+    /** Re-reads dashboard aggregates (today / 7d / 30d / per provider). */
+    fun refreshUsage() {
+        viewModelScope.launch {
+            runCatching {
+                val today = usageRepository.totalsSince(UsageClock.startOfToday())
+                val d7 = usageRepository.totalsSince(UsageClock.startOfDaysAgo(7))
+                val d30 = usageRepository.totalsSince(UsageClock.startOfDaysAgo(30))
+                val providers = usageRepository.perProviderSince(UsageClock.startOfDaysAgo(30))
+                _uiState.update {
+                    it.copy(
+                        usageToday = today,
+                        usage7d = d7,
+                        usage30d = d30,
+                        usageProviders = providers,
+                    )
+                }
+            }
+        }
+    }
+
+    fun onBudgetChange(value: String) {
+        // Digits only — keep the field strictly numeric.
+        val filtered = value.filter { it.isDigit() }.take(12)
+        _uiState.update { it.copy(dailyBudgetText = filtered) }
+    }
+
+    /** Persists the daily token budget (0 or blank = unlimited). */
+    fun saveBudget() {
+        val parsed = _uiState.value.dailyBudgetText.trim().toLongOrNull() ?: 0L
+        viewModelScope.launch {
+            runCatching {
+                val current = settingsRepository.current()
+                settingsRepository.save(current.copy(dailyTokenBudget = parsed.coerceAtLeast(0L)))
+            }
+            _uiState.update { it.copy(savedFlash = true, dailyBudgetText = parsed.takeIf { b -> b > 0 }?.toString().orEmpty()) }
+            refreshUsage()
+        }
+    }
+
+    fun clearUsage() {
+        viewModelScope.launch {
+            runCatching { usageRepository.clearAll() }
+            refreshUsage()
+        }
+    }
+
+    /** Full ledger as CSV (RFC-4180) for expense/tax tracking. */
+    suspend fun buildUsageCsv(): String = runCatching {
+        UsageCsv.build(usageRepository.eventsForExport())
+    }.getOrDefault("")
 
     /* ------------------------------ Skills ------------------------------ */
 

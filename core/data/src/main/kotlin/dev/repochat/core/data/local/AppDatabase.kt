@@ -11,8 +11,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChatMessageEntity::class,
         ActiveRepoEntity::class,
         SkillEntity::class,
+        UsageEventEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun chatMessageDao(): ChatMessageDao
     abstract fun activeRepoDao(): ActiveRepoDao
     abstract fun skillDao(): SkillDao
+    abstract fun usageDao(): UsageDao
 
     companion object {
         /**
@@ -66,6 +68,29 @@ abstract class AppDatabase : RoomDatabase() {
                       updatedAt INTEGER NOT NULL DEFAULT 0
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        /** Additive: usage_events metering table. No existing data touched. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS usage_events (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      ts INTEGER NOT NULL,
+                      provider TEXT NOT NULL,
+                      model TEXT NOT NULL,
+                      kind TEXT NOT NULL,
+                      input_tokens INTEGER NOT NULL,
+                      output_tokens INTEGER NOT NULL,
+                      reported INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_usage_events_ts ON usage_events(ts)",
                 )
             }
         }

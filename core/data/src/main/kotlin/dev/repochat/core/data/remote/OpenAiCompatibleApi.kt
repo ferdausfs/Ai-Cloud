@@ -95,6 +95,14 @@ data class OpenAiResponseFormatDto(val type: String)
 data class OpenAiChatResponseDto(
     val choices: List<OpenAiChoiceDto> = emptyList(),
     val error: OpenAiErrorBodyDto? = null,
+    /** Token accounting when the provider reports it (optional). */
+    val usage: OpenAiUsageDto? = null,
+)
+
+@Serializable
+data class OpenAiUsageDto(
+    @SerialName("prompt_tokens") val promptTokens: Long? = null,
+    @SerialName("completion_tokens") val completionTokens: Long? = null,
 )
 
 @Serializable

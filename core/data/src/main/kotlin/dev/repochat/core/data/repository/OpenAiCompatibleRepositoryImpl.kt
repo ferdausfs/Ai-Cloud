@@ -6,8 +6,10 @@ import dev.repochat.core.data.remote.OpenAiSpeechRequestDto
 import dev.repochat.core.data.remote.OpenAiCompatibleApi
 import dev.repochat.core.data.remote.OpenAiMessageDto
 import dev.repochat.core.data.remote.OpenAiResponseFormatDto
+import dev.repochat.core.data.remote.OpenAiUsageDto
 import dev.repochat.core.data.remote.mapHttpErrors
 import dev.repochat.core.model.AppError
+import dev.repochat.core.model.LlmUsage
 import dev.repochat.core.model.OllamaMessage
 import dev.repochat.core.model.ServiceConnection
 import dev.repochat.core.model.matchOpenAiPreset
@@ -38,6 +40,7 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
         connection: ServiceConnection,
         messages: List<OllamaMessage>,
         jsonMode: Boolean,
+        usageSink: ((LlmUsage) -> Unit)? = null,
     ): String {
         val base = connection.baseUrl.trim().trimEnd('/')
         if (base.isBlank()) {
@@ -71,6 +74,19 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
         if (text.isBlank()) {
             throw AppError.Api(AppError.Provider.LLM, null, "Provider returned an empty response.")
         }
+        response.usage?.let { u ->
+            val input = u.promptTokens
+            val output = u.completionTokens
+            if (input != null || output != null) {
+                usageSink?.invoke(
+                    LlmUsage(
+                        inputTokens = input ?: 0L,
+                        outputTokens = output ?: 0L,
+                        reported = true,
+                    ),
+                )
+            }
+        }
         return text
     }
 
@@ -86,6 +102,7 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
         messages: List<OllamaMessage>,
         jsonMode: Boolean,
         onDelta: (String) -> Unit,
+        usageSink: ((LlmUsage) -> Unit)? = null,
     ): String {
         val base = connection.baseUrl.trim().trimEnd('/')
         if (base.isBlank()) {
@@ -114,6 +131,7 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
         }
         stream.use { responseBody ->
             val full = StringBuilder()
+            var streamUsage: OpenAiUsageDto? = null
             val source = responseBody.source()
             val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
             while (true) {
@@ -123,15 +141,25 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
                 if (!trimmed.startsWith("data:")) continue
                 val payload = trimmed.removePrefix("data:").trim()
                 if (payload == "[DONE]") break
-                val delta = try {
+                var delta: String? = null
+                try {
                     val element = json.parseToJsonElement(payload)
-                    val choice = (element as? JsonObject)?.get("choices") as? JsonArray
+                    val obj = element as? JsonObject
+                    // OpenAI-compatible streams may attach usage on the final
+                    // chunk (OpenRouter always does; others only when asked).
+                    obj?.get("usage")?.let { u ->
+                        runCatching {
+                            json.decodeFromJsonElement(OpenAiUsageDto.serializer(), u)
+                        }.getOrNull()?.let { streamUsage = it }
+                    }
+                    val choice = obj?.get("choices") as? JsonArray
                     val deltaObj = choice?.firstOrNull() as? JsonObject
-                    (deltaObj?.get("delta") as? JsonObject)
+                    val primitive = (deltaObj?.get("delta") as? JsonObject)
                         ?.get("content") as? JsonPrimitive
+                    delta = primitive?.content
                 } catch (_: Exception) {
                     null // keep-alive comments / non-JSON lines are ignored
-                }?.content
+                }
                 if (!delta.isNullOrEmpty()) {
                     full.append(delta)
                     onDelta(full.toString())
@@ -140,6 +168,17 @@ class OpenAiCompatibleRepositoryImpl @Inject constructor(
             val text = full.toString().trim()
             if (text.isBlank()) {
                 throw AppError.Api(AppError.Provider.LLM, null, "Provider returned an empty response.")
+            }
+            streamUsage?.let { u ->
+                if (u.promptTokens != null || u.completionTokens != null) {
+                    usageSink?.invoke(
+                        LlmUsage(
+                            inputTokens = u.promptTokens ?: 0L,
+                            outputTokens = u.completionTokens ?: 0L,
+                            reported = true,
+                        ),
+                    )
+                }
             }
             return text
         }

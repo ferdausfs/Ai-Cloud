@@ -234,4 +234,23 @@
     <string name="ci_sheet_share">Share log</string>
     <string name="ci_sheet_fix_with_ai">Fix with AI</string>
     <string name="ci_sheet_close">Close</string>
+    <!-- Usage & budget (metering) -->
+    <string name="settings_usage_section">Usage &amp; budget</string>
+    <string name="settings_usage_body">Token usage across all providers. Providers that do not report exact counts are estimated from text length, so treat those numbers as close approximations.</string>
+    <string name="usage_range_today">Today</string>
+    <string name="usage_range_7d">7 days</string>
+    <string name="usage_range_30d">30 days</string>
+    <string name="usage_requests">%1$d requests</string>
+    <string name="usage_budget_label">Daily token budget</string>
+    <string name="usage_budget_hint">0 = no limit</string>
+    <string name="usage_budget_save">Save</string>
+    <string name="usage_budget_note">When today\'s usage reaches the budget, AI turns pause with a clear message until tomorrow — or until you raise it here.</string>
+    <string name="usage_providers_title">By provider (30 days)</string>
+    <string name="usage_empty">No usage recorded yet — token counts appear after your first AI turn.</string>
+    <string name="usage_export">Export CSV</string>
+    <string name="usage_clear">Clear usage data</string>
+    <string name="usage_clear_title">Clear usage data?</string>
+    <string name="usage_clear_body">All recorded token usage will be permanently deleted. Your chats, skills and settings are not affected.</string>
+    <string name="usage_clear_yes">Clear</string>
+    <string name="action_cancel">Cancel</string>
 </resources>

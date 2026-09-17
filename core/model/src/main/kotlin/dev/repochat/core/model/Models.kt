@@ -31,6 +31,8 @@ data class LlmChatResult(
     val providerLabel: String,
     /** Prior provider label when auto-fallback kicked in; null if first try won. */
     val fellBackFrom: String? = null,
+    /** Token usage when it could be captured (reported or estimated); null if unknown. */
+    val usage: LlmUsage? = null,
 )
 
 /** User-configurable secrets/settings, persisted with EncryptedSharedPreferences. */
@@ -49,6 +51,12 @@ data class AppSettings(
     val providerOrder: List<String> = emptyList(),
     /** Manual override for the next turns (null = follow [providerOrder]). */
     val activeProviderId: String? = null,
+    /**
+     * Daily token budget (input + output, all providers). 0 = no limit.
+     * When today's usage reaches the budget, new LLM turns fail fast with a
+     * clear message instead of silently spending more.
+     */
+    val dailyTokenBudget: Long = 0,
 ) {
     /** LLM connections only, in [providerOrder] then any extras. */
     fun llmConnectionsOrdered(): List<ServiceConnection> {

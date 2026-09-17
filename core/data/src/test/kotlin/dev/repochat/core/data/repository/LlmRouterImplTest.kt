@@ -2,18 +2,43 @@ package dev.repochat.core.data.repository
 
 import dev.repochat.core.domain.OllamaService
 import dev.repochat.core.domain.SettingsRepository
+import dev.repochat.core.domain.UsageRepository
 import dev.repochat.core.model.AppError
 import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ConnectionType
 import dev.repochat.core.model.OllamaMessage
 import dev.repochat.core.model.OllamaRole
 import dev.repochat.core.model.ServiceConnection
+import dev.repochat.core.model.UsageEvent
+import dev.repochat.core.model.UsageProviderTotals
+import dev.repochat.core.model.UsageTotals
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+
+/** Records every metered event; can preset today's totals for budget tests. */
+internal class FakeUsageRepository(
+    private var fixedTotals: UsageTotals? = null,
+) : UsageRepository {
+    val events = mutableListOf<UsageEvent>()
+    override suspend fun record(event: UsageEvent) {
+        events += event
+    }
+    override suspend fun totalsSince(sinceMillis: Long): UsageTotals =
+        fixedTotals ?: UsageTotals(
+            requests = events.size.toLong(),
+            inputTokens = events.sumOf { it.inputTokens },
+            outputTokens = events.sumOf { it.outputTokens },
+        )
+    override suspend fun perProviderSince(sinceMillis: Long): List<UsageProviderTotals> = emptyList()
+    override suspend fun eventsForExport(limit: Int): List<UsageEvent> = events.toList()
+    override suspend fun clearAll() {
+        events.clear()
+    }
+}
 
 class LlmRouterImplTest {
 
@@ -101,7 +126,7 @@ class LlmRouterImplTest {
                 ): okhttp3.ResponseBody = error("not used")
             },
         )
-        val router = LlmRouterImpl(settings, ollama, openAi)
+        val router = LlmRouterImpl(settings, ollama, openAi, FakeUsageRepository())
         val result = router.chat(
             messages = listOf(OllamaMessage(OllamaRole.USER, "hi")),
             jsonMode = true,

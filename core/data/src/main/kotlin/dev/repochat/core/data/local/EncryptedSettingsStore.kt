@@ -65,6 +65,8 @@ class EncryptedSettingsStore private constructor(
             orderRaw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         }
         val active = prefs.getString(KEY_ACTIVE_PROVIDER, null)?.takeIf { it.isNotBlank() }
+        val budget = prefs.getString(KEY_DAILY_TOKEN_BUDGET, null)
+            ?.trim()?.toLongOrNull() ?: 0L
         return AppSettings(
             ollamaKey = ollamaKey,
             modelName = modelName,
@@ -72,6 +74,7 @@ class EncryptedSettingsStore private constructor(
             connections = connections,
             providerOrder = order,
             activeProviderId = active,
+            dailyTokenBudget = budget.coerceAtLeast(0L),
         )
     }
 
@@ -88,6 +91,7 @@ class EncryptedSettingsStore private constructor(
             .putString(KEY_CONNECTIONS, connectionsJson)
             .putString(KEY_PROVIDER_ORDER, settings.providerOrder.joinToString(","))
             .putString(KEY_ACTIVE_PROVIDER, settings.activeProviderId.orEmpty())
+            .putString(KEY_DAILY_TOKEN_BUDGET, settings.dailyTokenBudget.coerceAtLeast(0L).toString())
             .apply()
     }
 
@@ -99,6 +103,7 @@ class EncryptedSettingsStore private constructor(
         private const val KEY_CONNECTIONS = "connections_json"
         private const val KEY_PROVIDER_ORDER = "provider_order_csv"
         private const val KEY_ACTIVE_PROVIDER = "active_provider_id"
+        private const val KEY_DAILY_TOKEN_BUDGET = "daily_token_budget"
         private const val KEY_LEGACY_OLLAMA_ID = "legacy_ollama_connection_id"
 
         fun create(context: Context): EncryptedSettingsStore {

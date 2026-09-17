@@ -31,11 +31,11 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the complete-cloud-agent release: skill engine, universal
-        // providers, multimodal generation, proactive greeting. Upgrades in
-        // place via `adb install -r` from the unified-chat build (versionCode 4).
-        versionCode = 5
-        versionName = "2.0.0"
+        // Bumped for the premium metering release: per-turn token usage ledger,
+        // usage dashboard, CSV export, daily token budget. Upgrades in place
+        // via `adb install -r` from the cloud-agent build (versionCode 5).
+        versionCode = 6
+        versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

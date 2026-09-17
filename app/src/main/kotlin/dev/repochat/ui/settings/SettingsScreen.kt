@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -41,12 +42,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.FileProvider
 import dev.repochat.R
 import dev.repochat.core.model.ConnectionType
 import dev.repochat.core.model.InstalledSkill
@@ -80,7 +85,10 @@ import dev.repochat.core.model.ModelCapabilities
 import dev.repochat.core.model.ModelPriceClass
 import dev.repochat.core.model.ModelPricing
 import dev.repochat.core.model.ServiceConnection
+import dev.repochat.core.model.UsageProviderTotals
+import dev.repochat.core.model.UsageTotals
 import dev.repochat.core.model.matchOpenAiPreset
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -318,6 +326,9 @@ fun SettingsScreen(
                         Spacer(Modifier.height(6.dp))
                     }
                 }
+
+                Spacer(Modifier.height(24.dp))
+                UsageSection(state = state, viewModel = viewModel)
 
                 Spacer(Modifier.height(24.dp))
                 Text(
@@ -986,5 +997,234 @@ private fun SkillRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/* --------------------------- Usage & budget --------------------------- */
+
+@Composable
+private fun UsageSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var confirmClear by remember { mutableStateOf(false) }
+
+    Text(
+        text = stringResource(R.string.settings_usage_section),
+        style = MaterialTheme.typography.titleMedium,
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = stringResource(R.string.settings_usage_body),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(10.dp))
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        UsageStatChip(
+            label = stringResource(R.string.usage_range_today),
+            totals = state.usageToday,
+            modifier = Modifier.weight(1f),
+        )
+        UsageStatChip(
+            label = stringResource(R.string.usage_range_7d),
+            totals = state.usage7d,
+            modifier = Modifier.weight(1f),
+        )
+        UsageStatChip(
+            label = stringResource(R.string.usage_range_30d),
+            totals = state.usage30d,
+            modifier = Modifier.weight(1f),
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = state.dailyBudgetText,
+            onValueChange = viewModel::onBudgetChange,
+            label = { Text(stringResource(R.string.usage_budget_label)) },
+            placeholder = { Text(stringResource(R.string.usage_budget_hint)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Button(onClick = viewModel::saveBudget) {
+            Text(stringResource(R.string.usage_budget_save))
+        }
+    }
+    Text(
+        text = stringResource(R.string.usage_budget_note),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+
+    Spacer(Modifier.height(14.dp))
+    Text(
+        text = stringResource(R.string.usage_providers_title),
+        style = MaterialTheme.typography.titleSmall,
+    )
+    Spacer(Modifier.height(6.dp))
+    if (state.usageProviders.isEmpty()) {
+        Text(
+            text = stringResource(R.string.usage_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        val maxTokens = state.usageProviders.maxOf { it.totalTokens }.coerceAtLeast(1L)
+        state.usageProviders.forEach { row ->
+            UsageProviderBar(row = row, maxTokens = maxTokens)
+            Spacer(Modifier.height(6.dp))
+        }
+    }
+
+    Spacer(Modifier.height(10.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(onClick = { scope.launch { exportUsageCsv(context, viewModel) } }) {
+            Text(stringResource(R.string.usage_export))
+        }
+        TextButton(onClick = { confirmClear = true }) {
+            Text(
+                stringResource(R.string.usage_clear),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text(stringResource(R.string.usage_clear_title)) },
+            text = { Text(stringResource(R.string.usage_clear_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    viewModel.clearUsage()
+                }) { Text(stringResource(R.string.usage_clear_yes)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun UsageStatChip(
+    label: String,
+    totals: UsageTotals,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = formatTokens(totals.totalTokens),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "in ${formatTokens(totals.inputTokens)} · out ${formatTokens(totals.outputTokens)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(R.string.usage_requests, totals.requests),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun UsageProviderBar(row: UsageProviderTotals, maxTokens: Long) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = row.provider,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${formatTokens(row.totalTokens)} · ${row.requests}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        LinearProgressIndicator(
+            progress = { (row.totalTokens.toFloat() / maxTokens).coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp)),
+        )
+    }
+}
+
+/** Compact token formatting: 12,340 → 12K, 3,456,789 → 3.5M. */
+internal fun formatTokens(n: Long): String = when {
+    n >= 1_000_000L -> String.format(java.util.Locale.US, "%.1fM", n / 1_000_000.0)
+    n >= 10_000L -> String.format(java.util.Locale.US, "%.0fK", n / 1_000.0)
+    else -> String.format(java.util.Locale.US, "%,d", n)
+}
+
+/**
+ * Writes the CSV into the app cache "exports" dir and opens the system share
+ * sheet via FileProvider (no storage permission needed).
+ */
+private suspend fun exportUsageCsv(
+    context: android.content.Context,
+    viewModel: SettingsViewModel,
+) {
+    val csv = viewModel.buildUsageCsv()
+    if (csv.isBlank()) return
+    runCatching {
+        val dir = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
+        // Keep only the latest export file around.
+        dir.listFiles()?.forEach { it.delete() }
+        val file = java.io.File(dir, "ai-cloud-usage-${System.currentTimeMillis()}.csv")
+        file.writeText(csv)
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "Ai Cloud — token usage")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, null).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
     }
 }

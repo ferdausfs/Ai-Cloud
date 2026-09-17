@@ -3,14 +3,21 @@ package dev.repochat.core.data.repository
 import dev.repochat.core.domain.LlmService
 import dev.repochat.core.domain.OllamaService
 import dev.repochat.core.domain.SettingsRepository
+import dev.repochat.core.domain.UsageRepository
 import dev.repochat.core.model.AppError
+import dev.repochat.core.model.AppSettings
 import dev.repochat.core.model.ConnectionType
 import dev.repochat.core.model.GeneratedMedia
 import dev.repochat.core.model.LlmChatResult
+import dev.repochat.core.model.LlmUsage
 import dev.repochat.core.model.ModelCapability
 import dev.repochat.core.model.ModelCapabilities
 import dev.repochat.core.model.OllamaMessage
 import dev.repochat.core.model.ServiceConnection
+import dev.repochat.core.model.TokenEstimator
+import dev.repochat.core.model.UsageClock
+import dev.repochat.core.model.UsageEvent
+import dev.repochat.core.model.UsageKind
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,6 +30,7 @@ class LlmRouterImpl @Inject constructor(
     private val settings: SettingsRepository,
     private val ollama: OllamaService,
     private val openAi: OpenAiCompatibleRepositoryImpl,
+    private val usageRepo: UsageRepository,
 ) : LlmService {
 
     override suspend fun chat(
@@ -31,6 +39,7 @@ class LlmRouterImpl @Inject constructor(
         preferredConnectionId: String?,
     ): LlmChatResult {
         val snap = settings.current()
+        enforceDailyBudget(snap)
         val ordered = snap.llmConnectionsOrdered()
         if (ordered.isEmpty()) {
             // Legacy single-key path: synthesize an Ollama connection from flat fields.
@@ -42,7 +51,7 @@ class LlmRouterImpl @Inject constructor(
                 )
             }
             val text = ollama.chat(legacyModel, messages, jsonMode = jsonMode, apiKeyOverride = legacyKey)
-            return LlmChatResult(text = text, connectionId = "legacy-ollama", providerLabel = "Ollama")
+            return finishLegacy("legacy-ollama", "Ollama", legacyModel, messages, text)
         }
 
         val preferred = preferredConnectionId?.let { id -> ordered.firstOrNull { it.id == id } }
@@ -60,13 +69,17 @@ class LlmRouterImpl @Inject constructor(
         for ((index, conn) in queue.withIndex()) {
             if (index == 0) firstLabel = conn.label
             try {
-                val text = invokeOne(conn, messages, jsonMode)
+                var captured: LlmUsage? = null
+                val text = invokeOne(conn, messages, jsonMode) { captured = it }
                 val noteFrom = if (index > 0) firstLabel else null
+                val usage = captured ?: TokenEstimator.estimateMessages(messages, text)
+                recordUsage(conn, UsageKind.CHAT, usage)
                 return LlmChatResult(
                     text = text,
                     connectionId = conn.id,
                     providerLabel = conn.label.ifBlank { conn.type.name },
                     fellBackFrom = noteFrom ?: fellBackFrom,
+                    usage = usage,
                 )
             } catch (e: AppError.RateLimited) {
                 lastError = e
@@ -93,6 +106,7 @@ class LlmRouterImpl @Inject constructor(
         onDelta: (String) -> Unit,
     ): LlmChatResult {
         val snap = settings.current()
+        enforceDailyBudget(snap)
         val ordered = snap.llmConnectionsOrdered()
         if (ordered.isEmpty()) {
             val legacyKey = snap.ollamaKey.trim()
@@ -104,7 +118,7 @@ class LlmRouterImpl @Inject constructor(
             }
             val text = ollama.chat(legacyModel, messages, jsonMode = jsonMode, apiKeyOverride = legacyKey)
             onDelta(text)
-            return LlmChatResult(text = text, connectionId = "legacy-ollama", providerLabel = "Ollama")
+            return finishLegacy("legacy-ollama", "Ollama", legacyModel, messages, text)
         }
 
         val preferred = preferredConnectionId?.let { id -> ordered.firstOrNull { it.id == id } }
@@ -122,13 +136,17 @@ class LlmRouterImpl @Inject constructor(
         for ((index, conn) in queue.withIndex()) {
             if (index == 0) firstLabel = conn.label
             try {
-                val text = invokeOneStreaming(conn, messages, jsonMode, onDelta)
+                var captured: LlmUsage? = null
+                val text = invokeOneStreaming(conn, messages, jsonMode, onDelta) { captured = it }
                 val noteFrom = if (index > 0) firstLabel else null
+                val usage = captured ?: TokenEstimator.estimateMessages(messages, text)
+                recordUsage(conn, UsageKind.CHAT, usage)
                 return LlmChatResult(
                     text = text,
                     connectionId = conn.id,
                     providerLabel = conn.label.ifBlank { conn.type.name },
                     fellBackFrom = noteFrom ?: fellBackFrom,
+                    usage = usage,
                 )
             } catch (e: AppError.RateLimited) {
                 lastError = e
@@ -185,13 +203,15 @@ class LlmRouterImpl @Inject constructor(
         conn: ServiceConnection,
         messages: List<OllamaMessage>,
         jsonMode: Boolean,
-    ): String = invokeOneStreaming(conn, messages, jsonMode) { }
+        usageSink: ((LlmUsage) -> Unit)?,
+    ): String = invokeOneStreaming(conn, messages, jsonMode, { }) { usageSink?.invoke(it) }
 
     private suspend fun invokeOneStreaming(
         conn: ServiceConnection,
         messages: List<OllamaMessage>,
         jsonMode: Boolean,
         onDelta: (String) -> Unit,
+        usageSink: ((LlmUsage) -> Unit)? = null,
     ): String = when (conn.type) {
         ConnectionType.OLLAMA -> {
             val model = conn.modelName.trim().ifBlank {
@@ -210,8 +230,76 @@ class LlmRouterImpl @Inject constructor(
             onDelta(text)
             text
         }
-        ConnectionType.OPENAI_COMPATIBLE -> openAi.chatStream(conn, messages, jsonMode, onDelta)
+        ConnectionType.OPENAI_COMPATIBLE -> openAi.chatStream(conn, messages, jsonMode, onDelta, usageSink)
         ConnectionType.GITHUB -> throw AppError.Configuration("Not an LLM connection.")
+    }
+
+    /* ------------------------------ metering ------------------------------ */
+
+    /** Finishes a legacy-path result: estimates usage and records the event. */
+    private suspend fun finishLegacy(
+        connectionId: String,
+        providerLabel: String,
+        model: String,
+        messages: List<OllamaMessage>,
+        text: String,
+    ): LlmChatResult {
+        val usage = TokenEstimator.estimateMessages(messages, text)
+        recordUsageRaw(providerLabel, model, UsageKind.CHAT, usage)
+        return LlmChatResult(
+            text = text,
+            connectionId = connectionId,
+            providerLabel = providerLabel,
+            usage = usage,
+        )
+    }
+
+    /** Hard stop when today's token usage reaches [AppSettings.dailyTokenBudget]. */
+    private suspend fun enforceDailyBudget(snap: AppSettings) {
+        val budget = snap.dailyTokenBudget
+        if (budget <= 0L) return
+        val today = usageRepo.totalsSince(UsageClock.startOfToday())
+        if (today.totalTokens >= budget) {
+            throw AppError.Configuration(
+                "Daily token budget reached — ${today.totalTokens} of $budget tokens used today. " +
+                    "Raise or disable the budget in Settings → Usage & budget.",
+            )
+        }
+    }
+
+    private suspend fun recordUsage(
+        conn: ServiceConnection,
+        kind: UsageKind,
+        usage: LlmUsage,
+    ) {
+        recordUsageRaw(
+            provider = conn.label.ifBlank { conn.type.name },
+            model = conn.modelName.trim(),
+            kind = kind,
+            usage = usage,
+        )
+    }
+
+    /** Never let metering failures break a chat turn. */
+    private suspend fun recordUsageRaw(
+        provider: String,
+        model: String,
+        kind: UsageKind,
+        usage: LlmUsage?,
+    ) {
+        runCatching {
+            usageRepo.record(
+                UsageEvent(
+                    timestampMillis = System.currentTimeMillis(),
+                    provider = provider.ifBlank { "unknown" },
+                    model = model,
+                    kind = kind,
+                    inputTokens = usage?.inputTokens ?: 0L,
+                    outputTokens = usage?.outputTokens ?: 0L,
+                    reported = usage?.reported ?: false,
+                ),
+            )
+        }
     }
 
     private fun isRateLimitLike(e: AppError): Boolean {
@@ -243,7 +331,9 @@ class LlmRouterImpl @Inject constructor(
         var lastError: AppError? = null
         for (conn in candidates) {
             try {
-                return openAi.generateImage(conn, prompt)
+                val media = openAi.generateImage(conn, prompt)
+                recordUsage(conn, UsageKind.IMAGE, LlmUsage(0, 0, reported = false))
+                return media
             } catch (e: AppError.RateLimited) {
                 lastError = e
                 continue
@@ -270,7 +360,13 @@ class LlmRouterImpl @Inject constructor(
         var lastError: AppError? = null
         for (conn in candidates) {
             try {
-                return openAi.speech(conn, text)
+                val media = openAi.speech(conn, text)
+                recordUsage(
+                    conn,
+                    UsageKind.SPEECH,
+                    LlmUsage(TokenEstimator.estimate(text), 0, reported = false),
+                )
+                return media
             } catch (e: AppError.RateLimited) {
                 lastError = e
                 continue
