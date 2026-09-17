@@ -253,4 +253,9 @@
     <string name="usage_clear_body">All recorded token usage will be permanently deleted. Your chats, skills and settings are not affected.</string>
     <string name="usage_clear_yes">Clear</string>
     <string name="action_cancel">Cancel</string>
+    <!-- Voice input -->
+    <string name="chat_voice_input_cd">Voice input</string>
+    <string name="chat_voice_listening">Listening…</string>
+    <string name="chat_voice_permission">Microphone permission is needed for voice input</string>
+    <string name="chat_voice_error">Voice input failed — try again</string>
 </resources>

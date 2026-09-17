@@ -31,11 +31,10 @@ android {
         applicationId = "dev.repochat"
         minSdk = 24
         targetSdk = 35
-        // Bumped for the premium metering release: per-turn token usage ledger,
-        // usage dashboard, CSV export, daily token budget. Upgrades in place
-        // via `adb install -r` from the cloud-agent build (versionCode 5).
-        versionCode = 6
-        versionName = "2.1.0"
+        // Bumped for the voice-input release: in-app speech-to-text on the
+        // composer (SpeechRecognizer, runtime permission, live transcript).
+        versionCode = 7
+        versionName = "2.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -11,6 +11,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -49,6 +54,7 @@ import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CallMerge
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -126,6 +132,7 @@ import dev.repochat.ui.components.InfoChip
 import dev.repochat.ui.components.bounce
 import dev.repochat.ui.theme.Teal400
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -926,6 +933,15 @@ private fun BottomBar(
     onApprove: () -> Unit,
     onReject: () -> Unit,
 ) {
+    val voice = rememberVoiceInput { spoken ->
+        onInputChange(VoiceInputMerger.merge(input, spoken))
+    }
+    LaunchedEffect(voice.errorEvent) {
+        if (voice.errorEvent != null) {
+            delay(4_000)
+            voice.consumeError()
+        }
+    }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
@@ -1034,6 +1050,14 @@ private fun BottomBar(
                         )
                     }
                 }
+                // Live voice input: pulsing mic + partial transcript (or error).
+                AnimatedVisibility(
+                    visible = voice.isListening || voice.errorEvent != null,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    VoiceListeningBar(state = voice)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (imageModeAvailable) {
                         IconButton(
@@ -1064,6 +1088,26 @@ private fun BottomBar(
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
                         )
+                    }
+                    if (voice.availability == VoiceAvailability.AVAILABLE) {
+                        IconButton(
+                            onClick = { if (voice.isListening) voice.stop() else voice.start() },
+                            modifier = Modifier.size(44.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (voice.isListening) {
+                                    Icons.Rounded.Stop
+                                } else {
+                                    Icons.Rounded.Mic
+                                },
+                                contentDescription = stringResource(R.string.chat_voice_input_cd),
+                                tint = if (voice.isListening) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                     }
                     OutlinedTextField(
                         value = input,
@@ -1582,4 +1626,54 @@ private fun canRegenerate(messages: List<dev.repochat.core.model.ChatMessage>): 
     return last.role == dev.repochat.core.model.ChatRole.AI &&
         last.kind == dev.repochat.core.model.MessageKind.TEXT &&
         !last.text.isNullOrBlank()
+}
+
+@Composable
+private fun VoiceListeningBar(state: VoiceInputState) {
+    val pulse = rememberInfiniteTransition(label = "voicePulse")
+    val alpha by pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "voiceAlpha",
+    )
+    val isError = state.errorEvent != null
+    val text = state.errorEvent
+        ?: state.partialText
+        ?: stringResource(R.string.chat_voice_listening)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Mic,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = if (isError) 1f else alpha),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isError) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = {
+            if (state.isListening) state.stop()
+            state.consumeError()
+        }) {
+            Text(stringResource(R.string.chat_stop))
+        }
+    }
 }
